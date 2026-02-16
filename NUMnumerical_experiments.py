@@ -15,7 +15,7 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # Preconditioned Monte Carlo
 import numpy as np
-import pocomc as pc
+
 from scipy.stats import uniform
 import numpy as np
 import jax
