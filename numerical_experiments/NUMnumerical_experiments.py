@@ -207,7 +207,7 @@ class SequentialMCExperimentRunner:
             print("Setting the target function to a standard Gaussian distribution.")
 
             # defining parameters for mcmc sampler 
-            np.random.seed(800)
+            np.random.seed(300)
 
             D = self.params["n_dims"]
             
@@ -941,14 +941,14 @@ sys.argv = [
     # parameters of the experiments
     "--n-dims", "15",
     "--nr-of-samples", "10000",
-    "--nr-of-components", "6",
+    "--nr-of-components", "3",
     "--width-mean", "10.0",
-    "--width-cov", "1.0",
-    "--weights-of-components", "0.17", "0.17", "0.17", "0.17", "0.17", "0.15",
+    "--width-cov", "1.3",
+    "--weights-of-components", "0.34", "0.33", "0.33", 
 
     # define bounds
-    "--prior-low", "-25.0",
-    "--prior-high", "25.0",
+    "--prior-low", "-30.0",
+    "--prior-high", "30.0",
 
     # define number of particles
     "--n-effective", "8000",
@@ -956,10 +956,10 @@ sys.argv = [
     "--n-prior", "264000",
 
     # define steps
-    "--n-total", "6192",
-    "--pc-n-steps", "250",
-    "--pc-n-max-steps", "350",
-    "--keep-max", "8000",
+    "--n-total", "7192",
+    "--pc-n-steps", "550",
+    "--pc-n-max-steps", "850",
+    "--keep-max", "10000",
     "--random-state", "0",
 
     # define metrics
