@@ -1,23 +1,22 @@
-Mon Feb 16 19:51:20 CET 2026
-HOST: gcn53.local.snellius.surf.nl
+Thu Feb 19 00:49:53 CET 2026
+HOST: gcn24.local.snellius.surf.nl
 WORKDIR: /gpfs/home5/obevza/jaxpsmc
-NVIDIA A100-SXM4-40GB, 590.48.01
 x64 enabled? True
-Using output directory: ./runs/gaussian_10/results_2
+Using output directory: /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1
 Passed parameters:
 experiment_type: gaussian
-n_dims: 4
-outdir: ./runs/gaussian_10/results_2
+n_dims: 15
+outdir: /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1
 nr_of_samples: 10000
-nr_of_components: 2
+nr_of_components: 6
 width_mean: 10.0
 width_cov: 1.0
-weights_of_components: [0.5, 0.5]
+weights_of_components: [0.17, 0.17, 0.17, 0.17, 0.17, 0.15]
 prior_low: -25.0
 prior_high: 25.0
-n_total: 1000
-pc_n_steps: 50
-pc_n_max_steps: 50
+n_total: 6192
+pc_n_steps: 250
+pc_n_max_steps: 350
 keep_max: 8000
 random_state: 0
 precondition: True
@@ -26,22 +25,37 @@ metric: ess
 resample: mult
 transform: probit
 use_identity_flow: True
-n_effective: 1000
-n_active: 1000
-n_prior: 10000
+n_effective: 8000
+n_active: 8000
+n_prior: 264000
 Setting the target function to a standard Gaussian distribution.
-[ 4.68406384 -9.85155336 -8.64199525  9.59435308]
-[ 2.56675507 -5.48889929  5.06070754 -8.96960295]
+[ 4.68406384 -9.85155336 -8.64199525  9.59435308 -3.15934955  1.66326115
+  7.95268296  5.84977491 -9.09136205 -6.81323707 -8.09976251  2.54151461
+ -3.95929984  5.29034733  1.98875586]
+[ 2.56675507 -5.48889929  5.06070754 -8.96960295 -1.02114652  5.92140829
+ -1.76558465 -0.58508466 -3.15502791 -8.63094907 -2.95627452  3.23684112
+ -3.37396959 -7.37596266  1.68050274]
+[-5.93586779  5.91713588 -8.22779751 -0.80832098  3.67650776 -0.91862231
+  9.43382267 -4.01815148 -4.89520311 -2.55866377  3.24450923 -2.43115453
+  5.53738303  7.32186921 -2.56322941]
+[-5.20238398 -8.08652409 -7.44410789 -3.42384043  0.43689596 -8.37602234
+ -8.15698839  3.63696729  2.38024343  1.22932018 -3.08258841  4.50436656
+  0.75841115 -2.99190779  7.39217561]
+[-4.42365404  9.77197835 -6.58889404 -4.52956289  9.45408786 -0.24744027
+  7.6160622   6.20174819 -1.83262232  7.64969168  6.61149769 -2.43227574
+ -6.76611649  4.53396918  7.06786885]
+[ 1.83209851 -5.98072812 -7.53397874  2.77488037 -8.79291899  6.81276245
+ -4.80700297  7.50701632  7.81504128  4.49943051 -5.819156   -2.85444326
+  4.30700061 -3.9907687   1.37819264]
 Sampling complete!
-n_prior (adjusted) = 10000 (input was 10000 )
-samples.shape = (10000, 4)
-logZ = -17.710027104951266 logZerr = nan
-Saved overlay corner plot to ./runs/gaussian_10/results_2/true_vs_mcmc_corner_plot.pdf
-Saved acceptance-rate plot to ./runs/gaussian_10/results_2/acceptance_rate.pdf
-MCMC samples saved to ./runs/gaussian_10/results_2/mcmc_samples.json
-True samples saved to ./runs/gaussian_10/results_2/true_samples.json
-Sample statistics saved to ./runs/gaussian_10/results_2/sample_statistics.txt
-KL metrics saved to ./runs/gaussian_10/results_2/kl_metrics.txt
-Saved to ./runs/gaussian_10/results_2/sigma_curve.pdf
-Saved two-page diagnostics to ./runs/gaussian_10/results_2/diagnostics_top6_2pages.pdf
-JOB DONE
+n_prior (adjusted) = 264000 (input was 264000 )
+samples.shape = (10000, 15)
+logZ = -78.19454985646202 logZerr = nan
+Saved overlay corner plot to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/true_vs_mcmc_corner_plot.pdf
+Saved acceptance-rate plot to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/acceptance_rate.pdf
+MCMC samples saved to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/mcmc_samples.json
+True samples saved to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/true_samples.json
+Sample statistics saved to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/sample_statistics.txt
+KL metrics saved to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/kl_metrics.txt
+Saved to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/sigma_curve.pdf
+Saved two-page diagnostics to /home/obevza/jaxpsmc/numerical_experiments/gaussian_10/results_1/diagnostics_top6_2pages.pdf
