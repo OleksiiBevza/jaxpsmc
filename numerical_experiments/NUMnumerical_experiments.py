@@ -207,7 +207,7 @@ class SequentialMCExperimentRunner:
             print("Setting the target function to a standard Gaussian distribution.")
 
             # defining parameters for mcmc sampler 
-            np.random.seed(500)
+            np.random.seed(501)
 
             D = self.params["n_dims"]
             
@@ -939,7 +939,7 @@ sys.argv = [
     "--outdir", "/home/obevza/jaxpsmc/numerical_experiments/gaussian_10",
 
     # parameters of the experiments
-    "--n-dims", "9",
+    "--n-dims", "14",
     "--nr-of-samples", "10000",
     "--nr-of-components", "4",
     "--width-mean", "10.0",
