@@ -1,1 +1,1 @@
-Parametric KL (Gaussian): 0.31074673
+Parametric KL (Gaussian): 0.00340238

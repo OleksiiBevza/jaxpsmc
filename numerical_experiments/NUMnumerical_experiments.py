@@ -89,6 +89,8 @@ parser.add_argument(
     help="The output directory, where things will be stored"
 )
 
+
+
 # Everything below here are hyperparameters for the Gaussian experiment. 
 parser.add_argument(
     "--nr-of-samples",
@@ -122,6 +124,8 @@ parser.add_argument(
     help="Mixture weights (--weights-of-components 0.3 0.7). If omitted, uses equal weights."
 )
 
+
+
 # Everything below here are hyperparameters for sampler
 parser.add_argument(
     "--prior-low",
@@ -135,32 +139,99 @@ parser.add_argument(
     default=20.0,
     help="Prior upper bound."
 )
-# JAX sampler controls
-parser.add_argument("--n-total", type=int, default=4096)
-parser.add_argument("--pc-n-steps", type=int, default=8)
-parser.add_argument("--pc-n-max-steps", type=int, default=80)
-parser.add_argument("--keep-max", type=int, default=4096)
-parser.add_argument("--random-state", type=int, default=0)
+parser.add_argument(
+    "--n-effective", 
+    type=int, 
+    required=True
+)
+parser.add_argument(
+    "--n-active", 
+    type=int, 
+    required=True
+)
+parser.add_argument(
+    "--n-prior", 
+    type=int, 
+    required=True
+)
+parser.add_argument(
+    "--n-total", 
+    type=int, 
+    default=4096
+)
+parser.add_argument(
+    "--pc-n-steps", 
+    type=int, 
+    default=8
+)
+parser.add_argument(
+    "--pc-n-max-steps", 
+    type=int, 
+    default=80
+)
+parser.add_argument(
+    "--keep-max", 
+    type=int, 
+    default=4096
+)
+parser.add_argument(
+    "--random-state", 
+    type=int, 
+    default=0
+)
 
-parser.add_argument("--precondition", action="store_true", default=True)  # keep True by default
-parser.add_argument("--no-precondition", action="store_false", dest="precondition")
+parser.add_argument(
+    "--precondition", 
+    action="store_true", 
+    default=True
+)  # keep True by default
+parser.add_argument(
+    "--no-precondition", 
+    action="store_false", 
+    dest="precondition"
+)
 
-parser.add_argument("--dynamic", action="store_true", default=True)
-parser.add_argument("--no-dynamic", action="store_false", dest="dynamic")
+parser.add_argument(
+    "--dynamic", 
+    action="store_true", 
+    default=True
+)
+parser.add_argument(
+    "--no-dynamic", 
+    action="store_false", 
+    dest="dynamic"
+)
 
-parser.add_argument("--metric", type=str, default="ess", choices=["ess", "uss"])
-parser.add_argument("--resample", type=str, default="mult", choices=["mult", "syst"])
-parser.add_argument("--transform", type=str, default="probit", choices=["probit", "logit"])
+parser.add_argument(
+    "--metric", 
+    type=str, 
+    default="ess", 
+    choices=["ess", "uss"]
+)
+parser.add_argument(
+    "--resample", 
+    type=str, 
+    default="mult", 
+    choices=["mult", "syst"]
+)
+parser.add_argument(
+    "--transform", 
+    type=str, 
+    default="probit", 
+    choices=["probit", "logit"]
+)
 
-# optional: for now, you’re using identity flow for “untrained but flow-shaped”
-parser.add_argument("--use-identity-flow", action="store_true", default=True)
+# parameters for identity flow (real flow will be used in near future)
+parser.add_argument(
+    "--use-identity-flow", 
+    action="store_true", 
+    default=True
+)
 
 
 
 
-parser.add_argument("--n-effective", type=int, required=True)
-parser.add_argument("--n-active", type=int, required=True)
-parser.add_argument("--n-prior", type=int, required=True)
+
 
 
 
@@ -207,7 +278,7 @@ class SequentialMCExperimentRunner:
             print("Setting the target function to a standard Gaussian distribution.")
 
             # defining parameters for mcmc sampler 
-            np.random.seed(501)
+            np.random.seed(503)
 
             D = self.params["n_dims"]
             
@@ -939,12 +1010,12 @@ sys.argv = [
     "--outdir", "/home/obevza/jaxpsmc/numerical_experiments/gaussian_10",
 
     # parameters of the experiments
-    "--n-dims", "14",
+    "--n-dims", "15",
     "--nr-of-samples", "10000",
-    "--nr-of-components", "4",
+    "--nr-of-components", "5",
     "--width-mean", "10.0",
     "--width-cov", "1.3",
-    "--weights-of-components", "0.25", "0.25", "0.25", "0.25", 
+    "--weights-of-components", "0.20", "0.20", "0.20", "0.20", "0.20", 
 
     # define bounds
     "--prior-low", "-30.0",
