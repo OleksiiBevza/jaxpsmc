@@ -455,7 +455,7 @@ import argparse
 
 sys.argv = [
     "notebook",
-    "--outdir", "/home/obevza/jaxpsmc/GW_examples/GW_events",   
+    "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
     "--nr-of-samples", "10000",        
 
     "--n-effective", "100",
