@@ -456,16 +456,16 @@ import argparse
 sys.argv = [
     "notebook",
     "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
-    "--nr-of-samples", "10000",        
+    "--nr-of-samples", "7000",        
 
-    "--n-effective", "100",
-    "--n-active", "100",
-    "--n-prior", "15",
+    "--n-effective", "7000",
+    "--n-active", "7000",
+    "--n-prior", "126000",
 
-    "--n-total", "100",
-    "--pc-n-steps", "5",
-    "--pc-n-max-steps", "5",
-    "--keep-max", "80",
+    "--n-total", "7000",
+    "--pc-n-steps", "400",
+    "--pc-n-max-steps", "500",
+    "--keep-max", "10000",
     "--random-state", "0",
 
     "--metric", "ess",

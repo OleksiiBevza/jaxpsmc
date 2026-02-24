@@ -17,8 +17,8 @@
     "ra",
     "dec"
   ],
-  "n_samples": 10000,
-  "logz": 247.57392068677626,
+  "n_samples": 7000,
+  "logz": 248.31175215596414,
   "logz_err": NaN,
   "seed": 0,
   "note": "Posterior draws from sampler"
