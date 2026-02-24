@@ -1,0 +1,25 @@
+{
+  "event": "GW150914",
+  "parameter_names": [
+    "M_c",
+    "q",
+    "s1_mag",
+    "s1_theta",
+    "s1_phi",
+    "s2_mag",
+    "s2_theta",
+    "s2_phi",
+    "iota",
+    "d_L",
+    "t_c",
+    "phase_c",
+    "psi",
+    "ra",
+    "dec"
+  ],
+  "n_samples": 10000,
+  "logz": 246.69661252990434,
+  "logz_err": NaN,
+  "seed": 0,
+  "note": "Posterior draws from sampler"
+}
