@@ -115,13 +115,8 @@ parser.add_argument("--bisect-steps", type=int, default=1000)
 
 
 
-
-
-
-
-
 ##################################################################################
-# 3. PRIOR
+# 3. PRIOR (sampler box prior + physics log-prior)
 ##################################################################################
 
 names = [
@@ -143,6 +138,7 @@ names = [
 ]
 D = len(names)
 
+# Hyper-rectangular support (matches GW150914_IMRPhenomPV2 ranges)
 bounds = np.array([
     [10.0, 80.0],            # M_c
     [0.125, 1.0],            # q
@@ -161,15 +157,59 @@ bounds = np.array([
     [-np.pi/2, np.pi/2],     # dec
 ], dtype=np.float64)
 
+# Box prior used by the SMC sampler (uniform in the above bounds)
 kinds = jnp.full((D,), UNIFORM, dtype=jnp.int32)
 prior_u = Prior.create(kinds, jnp.asarray(bounds, dtype=jnp.float64))
 
+# Periodic angles (for sampler)
 periodic_idx = jnp.array(
     [names.index(k) for k in ["s1_phi", "s2_phi", "phase_c", "ra"]],
     dtype=jnp.int64
 )
 
 
+def logprior_phys(x: jax.Array) -> jax.Array:
+    """
+    Physics prior that matches the GW150914_IMRPhenomPV2.py CombinePrior:
+      - M_c, q, t_c, phase_c, psi, ra: uniform (handled by box bounds)
+      - d_L:      p(d_L) ∝ d_L^2             (PowerLawPrior with index=2)
+      - iota:     p(iota) ∝ sin(iota)        (SinePrior)
+      - dec:      p(dec) ∝ cos(dec)          (CosinePrior)
+      - s1, s2:   isotropic spins (UniformSpherePrior) in (mag, theta, phi):
+                    p(r,θ,φ) ∝ r^2 sin(θ)
+    """
+    (
+        M_c, q,
+        s1_mag, s1_th, s1_ph,
+        s2_mag, s2_th, s2_ph,
+        iota,
+        d_L, t_c,
+        phase_c, psi,
+        ra, dec,
+    ) = x
+
+    eps = 1e-16
+    logp = 0.0
+
+    # Spins: UniformSpherePrior ~ r^2 * sin(theta) for each spin
+    logp += 2.0 * jnp.log(jnp.clip(s1_mag, eps))
+    logp += jnp.log(jnp.clip(jnp.sin(s1_th), eps))
+
+    logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
+    logp += jnp.log(jnp.clip(jnp.sin(s2_th), eps))
+
+    # Inclination: SinePrior -> p(iota) ∝ sin(iota)
+    logp += jnp.log(jnp.clip(jnp.sin(iota), eps))
+
+    # Distance: PowerLawPrior(index=2) -> p(d_L) ∝ d_L^2
+    logp += 2.0 * jnp.log(jnp.clip(d_L, eps))
+
+    # Declination: CosinePrior -> p(dec) ∝ cos(dec)
+    logp += jnp.log(jnp.clip(jnp.cos(dec), eps))
+
+    # M_c, q, t_c, phase_c, psi, ra are uniform in the box -> no extra log terms
+
+    return logp
 
 
 
@@ -181,47 +221,42 @@ periodic_idx = jnp.array(
 
 
 ##################################################################################
-# 4. LIKELIHOOD
+# 4. LIKELIHOOD (with detector‑frame transforms + manual mass/spin conversion)
 ##################################################################################
+
+# The three essential detector‑frame transforms (skip the distance transform)
+frame_transforms = sample_transforms[1:4]   # indices 1,2,3
 
 def loglike_x(x: jax.Array) -> jax.Array:
-    M_c = x[0]
-    q = x[1]
+    """
+    Log-likelihood in the geocentric parameterisation defined by `names`.
+    Steps:
+      1. Build a dictionary with the original geocentric parameters.
+      2. Apply the three detector‑frame transforms to a COPY.
+      3. Restore the geocentric keys that were removed by the transforms.
+      4. Manually compute symmetric mass ratio (eta) and Cartesian spin components.
+      5. Call the pre‑initialised likelihood with the updated parameter dict.
+    """
+    (
+        M_c, q,
+        s1_mag, s1_th, s1_ph,
+        s2_mag, s2_th, s2_ph,
+        iota,
+        d_L, t_c,
+        phase_c, psi,
+        ra, dec,
+    ) = x
 
-    s1_mag = x[2]
-    s1_th = x[3]
-    s1_ph = x[4]
-
-    s2_mag = x[5]
-    s2_th = x[6]
-    s2_ph = x[7]
-
-    iota = x[8]
-
-    d_L = x[9]
-    t_c = x[10]
-
-    phase_c = x[11]
-    psi = x[12]
-
-    ra = x[13]
-    dec = x[14]
-
-    eta = q / (1.0 + q) ** 2
-
-    s1x = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
-    s1y = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
-    s1z = s1_mag * jnp.cos(s1_th)
-
-    s2x = s2_mag * jnp.sin(s2_th) * jnp.cos(s2_ph)
-    s2y = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
-    s2z = s2_mag * jnp.cos(s2_th)
-
-    params = {
+    # Step 1: initial geocentric dictionary
+    params_geo = {
         "M_c": M_c,
         "q": q,
-        "eta": eta,
-
+        "s1_mag": s1_mag,
+        "s1_theta": s1_th,
+        "s1_phi": s1_ph,
+        "s2_mag": s2_mag,
+        "s2_theta": s2_th,
+        "s2_phi": s2_ph,
         "iota": iota,
         "d_L": d_L,
         "t_c": t_c,
@@ -229,27 +264,45 @@ def loglike_x(x: jax.Array) -> jax.Array:
         "psi": psi,
         "ra": ra,
         "dec": dec,
-
-        "s1_mag": s1_mag,
-        "s1_theta": s1_th,
-        "s1_phi": s1_ph,
-
-        "s2_mag": s2_mag,
-        "s2_theta": s2_th,
-        "s2_phi": s2_ph,
-
-        "s1_x": s1x,
-        "s1_y": s1y,
-        "s1_z": s1z,
-
-        "s2_x": s2x,
-        "s2_y": s2y,
-        "s2_z": s2z,
     }
 
-    return likelihood.evaluate(params, {})
+    # Save original values for keys that will be removed
+    orig_phase_c = phase_c
+    orig_t_c     = t_c
+    orig_ra      = ra
+    orig_dec     = dec
+
+    # Step 2: apply detector‑frame transforms to a COPY
+    params_det = params_geo.copy()
+    for tf in frame_transforms:
+        params_det = tf.forward(params_det)
+
+    # Step 3: restore geocentric keys
+    params_det['phase_c'] = orig_phase_c
+    params_det['t_c']     = orig_t_c
+    params_det['ra']      = orig_ra
+    params_det['dec']     = orig_dec
+
+    # Step 4: manual mass‑ratio and spin conversions
+    eta = q / (1.0 + q) ** 2
+    params_det["eta"] = eta
+
+    # Spherical -> Cartesian spins
+    params_det["s1_x"] = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
+    params_det["s1_y"] = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
+    params_det["s1_z"] = s1_mag * jnp.cos(s1_th)
+
+    params_det["s2_x"] = s2_mag * jnp.sin(s2_th) * jnp.cos(s2_ph)
+    params_det["s2_y"] = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
+    params_det["s2_z"] = s2_mag * jnp.cos(s2_th)
+
+    # Step 5: evaluate likelihood
+    return likelihood.evaluate(params_det, {})
 
 
+def logtarget_x(x: jax.Array) -> jax.Array:
+    """Full log‑target = log‑likelihood + physics log‑prior."""
+    return loglike_x(x) + logprior_phys(x)
 
 
 
@@ -458,9 +511,9 @@ sys.argv = [
     "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
     "--nr-of-samples", "10000",        
 
-    "--n-effective", "7200",
-    "--n-active", "7200",
-    "--n-prior", "108000",
+    "--n-effective", "7300",
+    "--n-active", "7300",
+    "--n-prior", "109500",
 
     "--n-total", "11000",
     "--pc-n-steps", "450",
@@ -483,13 +536,10 @@ args = parser.parse_args()
 ranges = [tuple(map(float, b)) for b in bounds]
 
 
-
-
-
 outdir, theta = run_event_and_save_posteriors(
     event_name="GW150914",
     prior_u=prior_u,
-    loglike_x=loglike_x,
+    loglike_x=logtarget_x,  # <-- use logtarget_x here
     D=D,
     names=names,
     ranges=ranges,
@@ -497,10 +547,9 @@ outdir, theta = run_event_and_save_posteriors(
     args=args,
 )
 
+
 print("Saved to:", outdir)
 print("theta.shape =", theta.shape)
-
-
 
 
 
