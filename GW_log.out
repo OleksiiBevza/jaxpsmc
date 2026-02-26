@@ -1,0 +1,11 @@
+ Package location: /gpfs/home5/obevza/jim-gw-jax-team/src/jimgw/__init__.py
+x64 enabled? True
+[GW150914] sampler.run: 9.96 min
+[GW150914] posterior_jax: 0.07 min
+Sampling complete!
+n_prior (adjusted) = 130000 (input was 130000 )
+samples.shape = (10000, 15)
+logZ = 253.48681881017592 logZerr = nan
+[GW150914] saved 10000 samples to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_002
+Saved to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_002
+theta.shape = (10000, 15)
