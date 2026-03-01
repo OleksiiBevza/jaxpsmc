@@ -198,7 +198,7 @@ def logprior_phys(x: jax.Array) -> jax.Array:
     logp += 2.0 * jnp.log(jnp.clip(s1_mag, eps))
     logp += jnp.log(jnp.clip(jnp.sin(s1_th), eps))
 
-    #logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
+    logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
     logp += jnp.log(jnp.clip(jnp.sin(s2_th), eps))
 
     # inclination: SinePrior -> p(iota) ∝ sin(iota)
@@ -750,14 +750,14 @@ sys.argv = [
     "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
     "--nr-of-samples", "10000",        
 
-    "--n-effective", "300",
-    "--n-active", "300",
-    "--n-prior", "1200",
+    "--n-effective", "6500",
+    "--n-active", "6500",
+    "--n-prior", "130000",
 
-    "--n-total", "500",
-    "--pc-n-steps", "50",
-    "--pc-n-max-steps", "50",
-    "--keep-max", "1200",
+    "--n-total", "11000",
+    "--pc-n-steps", "450",
+    "--pc-n-max-steps", "500",
+    "--keep-max", "12000",
     "--random-state", "0",
 
     "--metric", "ess",
