@@ -31,4 +31,4 @@ fi
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 # Run 
-python -u "$ROOT/GW_examples/GW_experiment.py"
+python -u "$ROOT/GW_examples/GW_15params.py"

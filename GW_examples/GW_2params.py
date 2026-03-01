@@ -123,19 +123,19 @@ parser.add_argument("--bisect-steps", type=int, default=1000)
 names = [
     "M_c",
     "q",
-    "s1_mag",
-    "s1_theta",
-    "s1_phi",
-    "s2_mag",
-    "s2_theta",
-    "s2_phi",
-    "iota",
-    "d_L",
-    "t_c",
-    "phase_c",
-    "psi",
-    "ra",
-    "dec",
+    #"s1_mag",
+    #"s1_theta",
+    #"s1_phi",
+    #"s2_mag",
+    #"s2_theta",
+    #"s2_phi",
+    #"iota",
+    #"d_L",
+    #"t_c",
+    #"phase_c",
+    #"psi",
+    #"ra",
+    #"dec",
 ]
 D = len(names)
 
@@ -143,19 +143,19 @@ D = len(names)
 bounds = np.array([
     [10.0, 80.0],            # M_c
     [0.125, 1.0],            # q
-    [0.0, 1.0],              # s1_mag
-    [0.0, np.pi],            # s1_theta
-    [0.0, 2*np.pi],          # s1_phi
-    [0.0, 1.0],              # s2_mag
-    [0.0, np.pi],            # s2_theta
-    [0.0, 2*np.pi],          # s2_phi
-    [0.0, np.pi],            # iota
-    [1.0, 2000.0],           # d_L
-    [-0.05, 0.05],           # t_c
-    [0.0, 2*np.pi],          # phase_c
-    [0.0, np.pi],            # psi
-    [0.0, 2*np.pi],          # ra
-    [-np.pi/2, np.pi/2],     # dec
+    #[0.0, 1.0],              # s1_mag
+    #[0.0, np.pi],            # s1_theta
+    #[0.0, 2*np.pi],          # s1_phi
+    #[0.0, 1.0],              # s2_mag
+    #[0.0, np.pi],            # s2_theta
+    #[0.0, 2*np.pi],          # s2_phi
+    #[0.0, np.pi],            # iota
+    #[1.0, 2000.0],           # d_L
+    #[-0.05, 0.05],           # t_c
+    #[0.0, 2*np.pi],          # phase_c
+    #[0.0, np.pi],            # psi
+    #[0.0, 2*np.pi],          # ra
+    #[-np.pi/2, np.pi/2],     # dec
 ], dtype=np.float64)
 
 # box prior used by the SMC sampler (uniform in the above bounds)
@@ -163,54 +163,61 @@ kinds = jnp.full((D,), UNIFORM, dtype=jnp.int32)
 prior_u = Prior.create(kinds, jnp.asarray(bounds, dtype=jnp.float64))
 
 # periodic angles (for sampler)
-periodic_idx = jnp.array(
-    [names.index(k) for k in ["s1_phi", "s2_phi", "phase_c", "ra"]],
-    dtype=jnp.int64
-)
+#periodic_idx = jnp.array(
+    #[names.index(k) for k in ["s1_phi", "s2_phi", "phase_c", "ra"]],
+    #dtype=jnp.int64
+#)
+
+periodic_idx = None
+
+
+#def logprior_phys(x: jax.Array) -> jax.Array:
+    #"""
+    #Physics prior that matches the GW150914_IMRPhenomPV2.py CombinePrior:
+     # - M_c, q, t_c, phase_c, psi, ra: uniform (handled by box bounds)
+     # - d_L:      p(d_L) ∝ d_L^2             (PowerLawPrior with index=2)
+     # - iota:     p(iota) ∝ sin(iota)        (SinePrior)
+     # - dec:      p(dec) ∝ cos(dec)          (CosinePrior)
+     # - s1, s2:   isotropic spins (UniformSpherePrior) in (mag, theta, phi):
+       #             p(r,θ,φ) ∝ r^2 sin(θ)
+    #"""
+    #(
+        #M_c, q,
+        #s1_mag, s1_th, s1_ph,
+        #s2_mag, s2_th, s2_ph,
+        #iota,
+        #d_L, t_c,
+        #phase_c, psi,
+        #ra, dec,
+    #) = x
+
+    #eps = 1e-16
+    #logp = 0.0
+
+    # spins: UniformSpherePrior ~ r^2 * sin(theta) for each spin
+    #logp += 2.0 * jnp.log(jnp.clip(s1_mag, eps))
+    #logp += jnp.log(jnp.clip(jnp.sin(s1_th), eps))
+
+    #logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
+    #logp += jnp.log(jnp.clip(jnp.sin(s2_th), eps))
+
+    # inclination: SinePrior -> p(iota) ∝ sin(iota)
+    #logp += jnp.log(jnp.clip(jnp.sin(iota), eps))
+
+    # distance: PowerLawPrior(index=2) -> p(d_L) ∝ d_L^2
+    #logp += 2.0 * jnp.log(jnp.clip(d_L, eps))
+
+    # declination: CosinePrior -> p(dec) ∝ cos(dec)
+    #logp += jnp.log(jnp.clip(jnp.cos(dec), eps))
+
+    
+
+    #return logp
 
 
 def logprior_phys(x: jax.Array) -> jax.Array:
-    """
-    Physics prior that matches the GW150914_IMRPhenomPV2.py CombinePrior:
-      - M_c, q, t_c, phase_c, psi, ra: uniform (handled by box bounds)
-      - d_L:      p(d_L) ∝ d_L^2             (PowerLawPrior with index=2)
-      - iota:     p(iota) ∝ sin(iota)        (SinePrior)
-      - dec:      p(dec) ∝ cos(dec)          (CosinePrior)
-      - s1, s2:   isotropic spins (UniformSpherePrior) in (mag, theta, phi):
-                    p(r,θ,φ) ∝ r^2 sin(θ)
-    """
-    (
-        M_c, q,
-        s1_mag, s1_th, s1_ph,
-        s2_mag, s2_th, s2_ph,
-        iota,
-        d_L, t_c,
-        phase_c, psi,
-        ra, dec,
-    ) = x
+    return 0.0   
 
-    eps = 1e-16
-    logp = 0.0
-
-    # spins: UniformSpherePrior ~ r^2 * sin(theta) for each spin
-    logp += 2.0 * jnp.log(jnp.clip(s1_mag, eps))
-    logp += jnp.log(jnp.clip(jnp.sin(s1_th), eps))
-
-    logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
-    logp += jnp.log(jnp.clip(jnp.sin(s2_th), eps))
-
-    # inclination: SinePrior -> p(iota) ∝ sin(iota)
-    logp += jnp.log(jnp.clip(jnp.sin(iota), eps))
-
-    # distance: PowerLawPrior(index=2) -> p(d_L) ∝ d_L^2
-    logp += 2.0 * jnp.log(jnp.clip(d_L, eps))
-
-    # declination: CosinePrior -> p(dec) ∝ cos(dec)
-    logp += jnp.log(jnp.clip(jnp.cos(dec), eps))
-
-    # M_c, q, t_c, phase_c, psi, ra are uniform in the box -> no extra log terms
-
-    return logp
 
 
 
@@ -222,24 +229,40 @@ def logprior_phys(x: jax.Array) -> jax.Array:
 
 
 ##################################################################################
-# 4. LIKELIHOOD 
+# 4. LIKELIHOOD  (2D: only M_c, q are free)
 ##################################################################################
-
-# three essential detector‑frame transforms (skip the distance transform)
-frame_transforms = sample_transforms[1:4]   # indices 1,2,3
 
 def loglike_x(x: jax.Array) -> jax.Array:
-    (
-        M_c, q,
-        s1_mag, s1_th, s1_ph,
-        s2_mag, s2_th, s2_ph,
-        iota,
-        d_L, t_c,
-        phase_c, psi,
-        ra, dec,
-    ) = x
+    """
+    2D target in (M_c, q) only.
 
-    # 1. Start from geocentric parameterisation
+    All other GW parameters (spins, distance, sky location, etc.)
+    are held fixed to reference values. This means we are sampling
+    from a *conditional* posterior p(M_c, q | others = const, data),
+    not the full 2D marginal.
+    """
+    M_c, q = x  # D = 2
+
+    # ---- fixed reference values for the other parameters ----
+    # You can choose these to match the injection or posterior median.
+    # For debugging SMC behaviour, any reasonable values are fine.
+    s1_mag = 0.0
+    s1_th  = 0.0
+    s1_ph  = 0.0
+
+    s2_mag = 0.0
+    s2_th  = 0.0
+    s2_ph  = 0.0
+
+    iota    = 0.5       # rad, arbitrary
+    d_L     = 400.0     # Mpc, arbitrary but within prior
+    t_c     = 0.0       # seconds offset
+    phase_c = 0.0
+    psi     = 0.0
+    ra      = 0.0
+    dec     = 0.0
+
+    # 1. Geocentric / extrinsic params dictionary
     params = {
         "M_c": M_c,
         "q": q,
@@ -258,7 +281,7 @@ def loglike_x(x: jax.Array) -> jax.Array:
         "dec": dec,
     }
 
-    # 2. Manual analogue of `likelihood_transforms`
+    # 2. Manual analogue of likelihood_transforms
     eta = q / (1.0 + q) ** 2
     params["eta"] = eta
 
@@ -274,8 +297,8 @@ def loglike_x(x: jax.Array) -> jax.Array:
     return likelihood.evaluate(params, {})
 
 
-
 def logtarget_x(x: jax.Array) -> jax.Array:
+    # 2D: physical prior is flat in M_c, q for now
     return loglike_x(x) + logprior_phys(x)
 
 
@@ -372,7 +395,7 @@ def plot_core_diagnostics_longpdf(out, n_active, n_dims, outdir,
             sharex=False,
             constrained_layout=True,
         )
-        fig.suptitle("SMC core diagnostics – page 1/2", fontsize=14)
+        fig.suptitle("page 1/2", fontsize=14)
 
         # 1) beta(t)
         ax = axes[0]
@@ -417,7 +440,7 @@ def plot_core_diagnostics_longpdf(out, n_active, n_dims, outdir,
             sharex=False,
             constrained_layout=True,
         )
-        fig.suptitle("SMC core diagnostics – page 2/2", fontsize=14)
+        fig.suptitle("page 2/2", fontsize=14)
 
         # 4) acceptance(t)
         ax = axes[0]
@@ -616,19 +639,19 @@ def run_event_and_save_posteriors(
     name_map = {
         "M_c":      "chirp_mass",
         "q":        "mass_ratio",
-        "s1_mag":   "a_1",
-        "s1_theta": "tilt_1",
-        "s1_phi":   "phi_1",
-        "s2_mag":   "a_2",
-        "s2_theta": "tilt_2",
-        "s2_phi":   "phi_2",
-        "iota":     "iota",
-        "d_L":      "luminosity_distance",
-        "t_c":      "geocent_time",
-        "phase_c":  "phase",
-        "psi":      "psi",
-        "ra":       "ra",
-        "dec":      "dec",
+        #"s1_mag":   "a_1",
+        #"s1_theta": "tilt_1",
+        #"s1_phi":   "phi_1",
+        #"s2_mag":   "a_2",
+        #"s2_theta": "tilt_2",
+        #"s2_phi":   "phi_2",
+        #"iota":     "iota",
+        #"d_L":      "luminosity_distance",
+        #"t_c":      "geocent_time",
+        #"phase_c":  "phase",
+        #"psi":      "psi",
+        #"ra":       "ra",
+        #"dec":      "dec",
     }
 
 
@@ -660,29 +683,18 @@ def run_event_and_save_posteriors(
     labels_latex = [
         r"$\mathcal{M}_c\ [M_\odot]$",
         r"$q$",
-        r"$s_{1,\mathrm{mag}}$",
-        r"$\theta_1$",
-        r"$\phi_1$",
-        r"$s_{2,\mathrm{mag}}$",
-        r"$\theta_2$",
-        r"$\phi_2$",
-        r"$\iota$",
-        r"$d_L\ \mathrm{[Mpc]}$",
-        r"$t_c$",
-        r"$\phi_c$",
-        r"$\psi$",
-        r"$\alpha$",
-        r"$\delta$",
     ]
 
-    # First: corner plot of the TRUE posterior ONLY.
-    # This sets the axis limits from the true samples
-    # in the same way as in the original "true post" plot.
-    fig = plt.figure(figsize=(16, 16))
+    # Use explicit ranges so corner doesn't complain about zero dynamic range.
+    # Here we just reuse the box bounds you passed in.
+    plot_ranges = ranges  # list of (low, high) for each dimension
+
+    fig = plt.figure(figsize=(8, 8))
     fig = corner.corner(
         samples_true,
         fig=fig,
         labels=labels_latex,
+        range=plot_ranges,
         show_titles=True,
         plot_datapoints=False,
         plot_density=True,
@@ -692,11 +704,10 @@ def run_event_and_save_posteriors(
         hist_kwargs={"density": True},
     )
 
-    # Second: overlay YOUR posterior on the SAME figure,
-    # without specifying `range`, so the limits stay identical.
     corner.corner(
         samples_ours,
         fig=fig,
+        range=plot_ranges,
         plot_datapoints=False,
         plot_density=True,
         fill_contours=False,
@@ -741,17 +752,17 @@ def run_event_and_save_posteriors(
 
 sys.argv = [
     "notebook",
-    "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
+    "--outdir", "/home/obevza/jaxpsmc/GW_examples/2_parameters",   
     "--nr-of-samples", "10000",        
 
-    "--n-effective", "300",
-    "--n-active", "300",
-    "--n-prior", "1200",
+    "--n-effective", "6500",
+    "--n-active", "6500",
+    "--n-prior", "130000",
 
-    "--n-total", "500",
-    "--pc-n-steps", "50",
-    "--pc-n-max-steps", "50",
-    "--keep-max", "1200",
+    "--n-total", "11000",
+    "--pc-n-steps", "450",
+    "--pc-n-max-steps", "500",
+    "--keep-max", "12000",
     "--random-state", "0",
 
     "--metric", "ess",
@@ -783,8 +794,6 @@ outdir, theta = run_event_and_save_posteriors(
 
 print("Saved to:", outdir)
 print("theta.shape =", theta.shape)
-
-
 
 
 
