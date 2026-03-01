@@ -1,14 +1,14 @@
  Package location: /gpfs/home5/obevza/jim-gw-jax-team/src/jimgw/__init__.py
 x64 enabled? True
-[GW150914] sampler.run: 6.12 min
+[GW150914] sampler.run: 9.95 min
 [GW150914] posterior_jax: 0.07 min
 Sampling complete!
 n_prior (adjusted) = 130000 (input was 130000 )
-samples.shape = (10000, 2)
-logZ = 251.30348787993043 logZerr = nan
-Saved core diagnostics PDF to /home/obevza/jaxpsmc/GW_examples/GW150914/run_000/diagnostics_core_long.pdf
-[GW150914] saved 10000 samples to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_000
-  HDF5 posterior: /home/obevza/jaxpsmc/GW_examples/GW150914/run_000/posterior.hdf5
+samples.shape = (10000, 15)
+logZ = 253.48681881017592 logZerr = nan
+Saved core diagnostics PDF to /home/obevza/jaxpsmc/GW_examples/GW150914/run_001/diagnostics_core_long.pdf
+[GW150914] saved 10000 samples to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_001
+  HDF5 posterior: /home/obevza/jaxpsmc/GW_examples/GW150914/run_001/posterior.hdf5
   Corner overlay: corner_true_vs_mine.png
-Saved to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_000
-theta.shape = (10000, 2)
+Saved to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_001
+theta.shape = (10000, 15)

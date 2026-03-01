@@ -226,14 +226,6 @@ def logprior_phys(x: jax.Array) -> jax.Array:
 
 
 
-
-##################################################################################
-# 4. LIKELIHOOD 
-##################################################################################
-
-# three essential detector‑frame transforms (skip the distance transform)
-frame_transforms = sample_transforms[1:4]   # indices 1,2,3
-
 def loglike_x(x: jax.Array) -> jax.Array:
     (
         M_c, q,
@@ -245,7 +237,6 @@ def loglike_x(x: jax.Array) -> jax.Array:
         ra, dec,
     ) = x
 
-    # 1. Start from geocentric parameterisation
     params = {
         "M_c": M_c,
         "q": q,
@@ -264,10 +255,10 @@ def loglike_x(x: jax.Array) -> jax.Array:
         "dec": dec,
     }
 
-    # 2. Manual analogue of `likelihood_transforms`
-    eta = q / (1.0 + q) ** 2
-    params["eta"] = eta
+    # Derived parameter required by the waveform
+    params["eta"] = q / (1.0 + q) ** 2
 
+    # Cartesian spin components (with underscores, as expected by RippleIMRPhenomPv2)
     params["s1_x"] = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
     params["s1_y"] = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
     params["s1_z"] = s1_mag * jnp.cos(s1_th)
@@ -276,7 +267,6 @@ def loglike_x(x: jax.Array) -> jax.Array:
     params["s2_y"] = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
     params["s2_z"] = s2_mag * jnp.cos(s2_th)
 
-    # 3. Evaluate likelihood
     return likelihood.evaluate(params, {})
 
 
