@@ -21,13 +21,14 @@ jax.config.update("jax_enable_x64", True)
 import os
 import json
 import re
+import sys
 import argparse
+
 
 import logging
 logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 from jax.tree_util import tree_map
-import os
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -35,7 +36,7 @@ import corner
 import matplotlib as mpl
 mpl.rcParams["axes.grid"] = False
 
-
+import h5py
 
 
 
@@ -228,15 +229,6 @@ def logprior_phys(x: jax.Array) -> jax.Array:
 frame_transforms = sample_transforms[1:4]   # indices 1,2,3
 
 def loglike_x(x: jax.Array) -> jax.Array:
-    """
-    Log-likelihood in the geocentric parameterisation defined by `names`.
-    Steps:
-      1. Build a dictionary with the original geocentric parameters.
-      2. Apply the three detector‑frame transforms to copy.
-      3. Restore the geocentric keys that were removed by the transforms.
-      4. Manually compute symmetric mass ratio (eta) and cartesian spin components.
-      5. Call the pre‑initialised likelihood with the updated parameter dict.
-    """
     (
         M_c, q,
         s1_mag, s1_th, s1_ph,
@@ -247,8 +239,8 @@ def loglike_x(x: jax.Array) -> jax.Array:
         ra, dec,
     ) = x
 
-    # initial geocentric dictionary
-    params_geo = {
+    # 1. Start from geocentric parameterisation
+    params = {
         "M_c": M_c,
         "q": q,
         "s1_mag": s1_mag,
@@ -266,42 +258,24 @@ def loglike_x(x: jax.Array) -> jax.Array:
         "dec": dec,
     }
 
-    # save original values for keys that will be removed
-    orig_phase_c = phase_c
-    orig_t_c     = t_c
-    orig_ra      = ra
-    orig_dec     = dec
-
-    #  apply detector‑frame transforms to copy
-    params_det = params_geo.copy()
-    for tf in frame_transforms:
-        params_det = tf.forward(params_det)
-
-    # restore geocentric keys
-    params_det['phase_c'] = orig_phase_c
-    params_det['t_c']     = orig_t_c
-    params_det['ra']      = orig_ra
-    params_det['dec']     = orig_dec
-
-    # Step 4: manual mass‑ratio and spin conversions
+    # 2. Manual analogue of `likelihood_transforms`
     eta = q / (1.0 + q) ** 2
-    params_det["eta"] = eta
+    params["eta"] = eta
 
-    # Spherical into Cartesian spins
-    params_det["s1_x"] = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
-    params_det["s1_y"] = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
-    params_det["s1_z"] = s1_mag * jnp.cos(s1_th)
+    params["s1_x"] = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
+    params["s1_y"] = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
+    params["s1_z"] = s1_mag * jnp.cos(s1_th)
 
-    params_det["s2_x"] = s2_mag * jnp.sin(s2_th) * jnp.cos(s2_ph)
-    params_det["s2_y"] = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
-    params_det["s2_z"] = s2_mag * jnp.cos(s2_th)
+    params["s2_x"] = s2_mag * jnp.sin(s2_th) * jnp.cos(s2_ph)
+    params["s2_y"] = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
+    params["s2_z"] = s2_mag * jnp.cos(s2_th)
 
-    #  evaluate likelihood
-    return likelihood.evaluate(params_det, {})
+    # 3. Evaluate likelihood
+    return likelihood.evaluate(params, {})
+
 
 
 def logtarget_x(x: jax.Array) -> jax.Array:
-    """Full log‑target = log‑likelihood + physics log‑prior."""
     return loglike_x(x) + logprior_phys(x)
 
 
@@ -412,7 +386,8 @@ def run_event_and_save_posteriors(
 
     # run sampler
     t0 = time.time()
-    sampler = SamplerJAX(prior_u, loglike_x, cfg, flow=IdentityFlowJAX(D))
+    # sampler = SamplerJAX(prior_u, loglike_x, cfg, flow=IdentityFlowJAX(D))
+    sampler = SamplerJAX(prior_u, logtarget_x, cfg, flow=IdentityFlowJAX(D))
     out = sampler.run(jax.random.PRNGKey(seed))
     out = _block_tree(out)
     print(f"[{event_name}] sampler.run: {(time.time()-t0)/60:.2f} min")
@@ -450,43 +425,159 @@ def run_event_and_save_posteriors(
     print("samples.shape =", theta.shape)
     print("logZ =", logZ, "logZerr =", logZerr)
 
+
+
+
+
+
+
     # save
     outdir = next_run_dir(os.path.join(out_root, event_name))
+
+    # ------------------------------------------------------------------
+    # 1) SAVE *YOUR* POSTERIOR IN ONE HDF5 FILE
+    # ------------------------------------------------------------------
+    h5_path = os.path.join(outdir, "posterior.hdf5")
 
     meta = {
         "event": event_name,
         "parameter_names": names,
         "n_samples": int(theta.shape[0]),
-        "logz": logZ,
-        "logz_err": logZerr,
+        "logz": float(logZ),
+        "logz_err": float(logZerr),
         "seed": int(seed),
         "note": "Posterior draws from sampler",
     }
-    with open(os.path.join(outdir, "meta.json"), "w") as f:
-        json.dump(meta, f, indent=2)
 
-    for j, nm in enumerate(names):
-        with open(os.path.join(outdir, f"{nm}_posterior.json"), "w") as f:
-            json.dump(theta[:, j].astype(float).tolist(), f)
+    with h5py.File(h5_path, "w") as f_h5:
+        # samples: shape (n_samples, D)
+        f_h5.create_dataset("samples", data=theta)
+        # parameter names as fixed-length strings
+        f_h5.create_dataset("names", data=np.asarray(names, dtype="S"))
+        # simple attributes
+        for k, v in meta.items():
+            f_h5.attrs[k] = v
 
-    # corner plot 
+    # ------------------------------------------------------------------
+    # 2) LOAD TRUE POSTERIOR FROM BILBY/JIMGW HDF5
+    # ------------------------------------------------------------------
+    true_file = "/home/obevza/jaxpsmc/GW_examples/GW150914_095045_data0_1126259462-391_analysis_H1L1_result.hdf5"
+
+    # mapping from *your* parameter names -> names in true posterior
+    name_map = {
+        "M_c":      "chirp_mass",
+        "q":        "mass_ratio",
+        "s1_mag":   "a_1",
+        "s1_theta": "tilt_1",
+        "s1_phi":   "phi_1",
+        "s2_mag":   "a_2",
+        "s2_theta": "tilt_2",
+        "s2_phi":   "phi_2",
+        "iota":     "iota",
+        "d_L":      "luminosity_distance",
+        "t_c":      "geocent_time",
+        "phase_c":  "phase",
+        "psi":      "psi",
+        "ra":       "ra",
+        "dec":      "dec",
+    }
+
+
+
+    gps_ref = 1126259462.4  # same GPS time as in GW150914_IMRPhenomPV2.py
+
+    with h5py.File(true_file, "r") as f_true:
+        post_true = f_true["posterior"]
+        true_cols = []
+        for nm in names:
+            true_nm = name_map[nm]
+            arr = post_true[true_nm][:]
+
+            # convert absolute geocent_time -> offset t_c (seconds)
+            if nm == "t_c":
+                arr = arr - gps_ref
+
+            true_cols.append(arr)
+
+        samples_true = np.column_stack(true_cols)
+
+
+
+    # ------------------------------------------------------------------
+    # 3) BUILD OVERLAY: TRUE (BLACK) VS YOUR SAMPLER (ORANGE)
+    # ------------------------------------------------------------------
+    samples_ours = theta  # same order as `names`
+
+    labels_latex = [
+        r"$\mathcal{M}_c\ [M_\odot]$",
+        r"$q$",
+        r"$s_{1,\mathrm{mag}}$",
+        r"$\theta_1$",
+        r"$\phi_1$",
+        r"$s_{2,\mathrm{mag}}$",
+        r"$\theta_2$",
+        r"$\phi_2$",
+        r"$\iota$",
+        r"$d_L\ \mathrm{[Mpc]}$",
+        r"$t_c$",
+        r"$\phi_c$",
+        r"$\psi$",
+        r"$\alpha$",
+        r"$\delta$",
+    ]
+
+    # First: corner plot of the TRUE posterior ONLY.
+    # This sets the axis limits from the true samples
+    # in the same way as in the original "true post" plot.
+    fig = plt.figure(figsize=(16, 16))
     fig = corner.corner(
-        theta,
-        labels=names,
-        range=ranges,
+        samples_true,
+        fig=fig,
+        labels=labels_latex,
         show_titles=True,
         plot_datapoints=False,
         plot_density=True,
         fill_contours=True,
         bins=30,
+        color="black",
+        hist_kwargs={"density": True},
     )
+
+    # Second: overlay YOUR posterior on the SAME figure,
+    # without specifying `range`, so the limits stay identical.
+    corner.corner(
+        samples_ours,
+        fig=fig,
+        plot_datapoints=False,
+        plot_density=True,
+        fill_contours=False,
+        bins=30,
+        color="tab:orange",
+        hist_kwargs={"density": True},
+    )
+
     for ax in fig.get_axes():
         ax.grid(False)
 
-    fig.savefig(os.path.join(outdir, "corner.png"), dpi=150, bbox_inches="tight")
+    fig.savefig(
+        os.path.join(outdir, "corner_true_vs_mine.png"),
+        dpi=150,
+        bbox_inches="tight",
+    )
     plt.close(fig)
 
+
+
+
+
+
+
+
+
     print(f"[{event_name}] saved {theta.shape[0]} samples to: {outdir}")
+    print(f"  HDF5 posterior: {h5_path}")
+    print("  Corner overlay: corner_true_vs_mine.png")
+
     return outdir, theta
 
 
@@ -502,9 +593,6 @@ def run_event_and_save_posteriors(
 # 6. RUN EXPERIMENT
 ##################################################################################
 
-
-import sys
-import argparse
 
 sys.argv = [
     "notebook",
