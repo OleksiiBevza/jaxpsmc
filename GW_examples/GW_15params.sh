@@ -6,7 +6,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-gpu=18
 #SBATCH --mem-per-gpu=40G
-#SBATCH -t 16:00:00
+#SBATCH -t 20:00:00
 #SBATCH --output=GW_log.out
 #SBATCH --error=GW_log.err
 #SBATCH --export=NONE
@@ -31,4 +31,11 @@ fi
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
 
 # Run 
-python -u "$ROOT/GW_examples/GW_15params.py"
+python -u "$ROOT/GW_examples/GW_exper.py"
+
+
+
+
+
+
+
