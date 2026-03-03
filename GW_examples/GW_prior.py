@@ -1,0 +1,637 @@
+from dataclasses import field
+from typing import Optional
+
+import jax
+import jax.numpy as jnp
+from jax.scipy.special import logit
+from beartype import beartype as typechecker
+from jaxtyping import Array, Float, Key, jaxtyped
+from abc import abstractmethod
+import equinox as eqx
+
+from jimgw.core.transforms import (
+    BijectiveTransform,
+    ScaleTransform,
+    OffsetTransform,
+    CosineTransform,
+    PowerLawTransform,
+    RayleighTransform,
+    reverse_bijective_transform,
+)
+
+
+class Prior(eqx.Module):
+    """
+    Base class for prior distributions.
+
+    This class should not be used directly. It provides a common interface and bookkeeping for parameter names and transforms.
+    """
+
+    parameter_names: tuple[str, ...]
+
+    @property
+    def n_dims(self) -> int:
+        return len(self.parameter_names)
+
+    def __init__(self, parameter_names: list[str]):
+        """
+        Parameters
+        ----------
+        parameter_names : list[str]
+            A list of names for the parameters of the prior.
+        """
+        self.parameter_names = tuple(parameter_names)
+
+    def add_name(self, x: Float[Array, "n_dims"]) -> dict[str, Float]:
+        """
+        Turn an array into a dictionary
+
+        Parameters
+        ----------
+        x : Array
+            An array of parameters. Shape (n_dims,).
+        """
+
+        return dict(zip(self.parameter_names, x))
+
+    def __call__(self, x: dict[str, Float]) -> Float:
+        return self.log_prob(x)
+
+    @abstractmethod
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        raise NotImplementedError
+
+    @abstractmethod
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        raise NotImplementedError
+
+
+@jaxtyped(typechecker=typechecker)
+class CompositePrior(Prior):
+    """
+    Composite prior consisting of multiple priors, including SequentialTransformPrior and CombinePrior.
+    This class is used to create complex prior distributions from simpler ones.
+
+    Attributes:
+        base_prior (tuple[Prior, ...]): Tuple of prior objects.
+        parameter_names (tuple[str, ...]): Names of all parameters in the composite prior.
+    """
+
+    base_prior: tuple[Prior, ...]
+
+    def __repr__(self):
+        return f"Composite(priors={self.base_prior}, parameter_names={self.parameter_names})"
+
+    def __init__(
+        self,
+        priors: list[Prior],
+    ):
+        self.base_prior = tuple(priors)
+        self.parameter_names = tuple(
+            [name for prior in priors for name in prior.parameter_names]
+        )
+
+    def trace_prior_parent(self, output: Optional[list[Prior]] = None) -> list[Prior]:
+        if output is None:
+            output = []
+        for subprior in self.base_prior:
+            if isinstance(subprior, CompositePrior):
+                output = subprior.trace_prior_parent(output)
+            else:
+                output.append(subprior)
+        return output
+
+
+@jaxtyped(typechecker=typechecker)
+class LogisticDistribution(Prior):
+    """
+    One-dimensional logistic distribution prior.
+
+    Attributes:
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    def __repr__(self):
+        return f"LogisticDistribution(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str], **kwargs):
+        super().__init__(parameter_names)
+        assert self.n_dims == 1, "LogisticDistribution needs to be 1D distributions"
+
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        """
+        Sample from a logistic distribution.
+
+        Parameters
+        ----------
+        rng_key : Key
+            A random key to use for sampling.
+        n_samples : int
+            The number of samples to draw.
+
+        Returns
+        -------
+        samples : dict
+            Samples from the distribution. The keys are the names of the parameters.
+
+        """
+        samples = jax.random.uniform(rng_key, (n_samples,), minval=0.0, maxval=1.0)
+        samples = logit(samples)
+        return self.add_name(samples[None])
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        variable = z[self.parameter_names[0]]
+        return -variable - 2 * jnp.log(1 + jnp.exp(-variable))
+
+
+@jaxtyped(typechecker=typechecker)
+class StandardNormalDistribution(Prior):
+    """
+    One-dimensional standard normal (Gaussian) distribution prior.
+
+    Attributes:
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    def __repr__(self):
+        return f"StandardNormalDistribution(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str], **kwargs):
+        super().__init__(parameter_names)
+        assert self.n_dims == 1, (
+            "StandardNormalDistribution needs to be 1D distributions"
+        )
+
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        """
+        Sample from a standard normal distribution.
+
+        Parameters
+        ----------
+        rng_key : Key
+            A random key to use for sampling.
+        n_samples : int
+            The number of samples to draw.
+
+        Returns
+        -------
+        samples : dict
+            Samples from the distribution. The keys are the names of the parameters.
+
+        """
+        samples = jax.random.normal(rng_key, (n_samples,))
+        return self.add_name(samples[None])
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        variable = z[self.parameter_names[0]]
+        return -0.5 * (variable**2 + jnp.log(2 * jnp.pi))
+
+
+@jaxtyped(typechecker=typechecker)
+class UniformDistribution(Prior):
+    """
+    One-dimensional uniform distribution prior over [0, 1].
+
+    Attributes:
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    xmin: float = 0.0
+    xmax: float = 1.0
+
+    def __repr__(self):
+        return f"UniformDistribution(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str], **kwargs):
+        super().__init__(parameter_names)
+        assert self.n_dims == 1, "UniformDistribution needs to be 1D distributions"
+
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        """
+        Sample from a uniform distribution.
+
+        Parameters
+        ----------
+        rng_key : Key
+            A random key to use for sampling.
+        n_samples : int
+            The number of samples to draw.
+
+        Returns
+        -------
+        samples : dict
+            Samples from the distribution. The keys are the names of the parameters.
+
+        """
+        samples = jax.random.uniform(rng_key, (n_samples,), minval=0.0, maxval=1.0)
+        return self.add_name(samples[None])
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        variable = z[self.parameter_names[0]]
+        return jnp.where(
+            jnp.logical_and(variable >= 0.0, variable <= 1.0), 0.0, -jnp.inf
+        )
+
+
+class SequentialTransformPrior(CompositePrior):
+    """
+    Prior distribution transformed by a sequence of bijective transforms.
+
+    Attributes:
+        base_prior (tuple[Prior, ...]): The base prior to transform.
+        transforms (tuple[BijectiveTransform, ...]): Tuple of transforms to apply sequentially.
+        parameter_names (tuple[str, ...]): Names of the parameters after all transforms.
+    """
+
+    transforms: tuple[BijectiveTransform, ...]
+
+    def __repr__(self):
+        return f"Sequential(priors={self.base_prior}, parameter_names={self.parameter_names})"
+
+    def __init__(
+        self,
+        base_prior: list[Prior],
+        transforms: list[BijectiveTransform],
+    ):
+        assert len(base_prior) == 1, (
+            "SequentialTransformPrior only takes one base prior"
+        )
+        super().__init__(base_prior)
+        self.transforms = tuple(transforms)
+        for transform in self.transforms:
+            self.parameter_names = tuple(transform.propagate_name(self.parameter_names))
+
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        output = self.base_prior[0].sample(rng_key, n_samples)
+        return jax.vmap(self.transform)(output)
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        """
+        Evaluating the probability of the transformed variable z.
+        This is what flowMC should sample from
+        """
+        output = 0
+        for transform in reversed(self.transforms):
+            z, log_jacobian = transform.inverse(z)
+            output += log_jacobian
+        output += self.base_prior[0].log_prob(z)
+        return output
+
+    def transform(self, x: dict[str, Float]) -> dict[str, Float]:
+        for transform in self.transforms:
+            x = transform.forward(x)
+        return x
+
+
+class BoundedMixin:
+    """
+    Mixin class that adds bounds checking to log_prob.
+
+    This mixin should be placed BEFORE the main prior class in the inheritance list
+    (e.g., `class MyPrior(BoundedMixin, SequentialTransformPrior)`) to ensure the
+    bounds check is applied before delegating to the base prior's log_prob.
+
+    Classes using this mixin can override `xmin` and `xmax` attributes to set bounds.
+    By default, the bounds are (-inf, inf), meaning no bounds checking.
+
+    The mixin returns -inf for values outside [xmin, xmax].
+
+    Note: This is a mixin and should not be used standalone. It relies on the
+    presence of `parameter_names` attribute from the Prior class and the
+    implementation of `log_prob` in the base class.
+    """
+
+    xmin: float = -jnp.inf
+    xmax: float = jnp.inf
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        x = z[self.parameter_names[0]]  # type: ignore
+        base_log_prob = super().log_prob(z)  # type: ignore
+        return jnp.where(
+            jnp.logical_and(x >= self.xmin, x <= self.xmax),
+            base_log_prob,
+            -jnp.inf,
+        )
+
+
+class CombinePrior(CompositePrior):
+    """
+    Multivariate prior constructed by joining multiple independent priors.
+
+    Attributes:
+        base_prior (tuple[Prior, ...]): Tuple of independent priors.
+        parameter_names (tuple[str, ...]): Names of all parameters in the combined prior.
+    """
+
+    base_prior: tuple[Prior, ...] = field(default_factory=tuple)
+
+    def __repr__(self):
+        return (
+            f"Combine(priors={self.base_prior}, parameter_names={self.parameter_names})"
+        )
+
+    def __init__(
+        self,
+        priors: list[Prior],
+    ):
+        super().__init__(priors)
+
+    def sample(
+        self, rng_key: Key, n_samples: int
+    ) -> dict[str, Float[Array, " n_samples"]]:
+        output = {}
+        for prior in self.base_prior:
+            rng_key, subkey = jax.random.split(rng_key)
+            output.update(prior.sample(subkey, n_samples))
+        return output
+
+    def log_prob(self, z: dict[str, Float]) -> Float:
+        output = 0.0
+        for prior in self.base_prior:
+            output += prior.log_prob(z)
+        return output
+
+
+@jaxtyped(typechecker=typechecker)
+class UniformPrior(SequentialTransformPrior):
+    """
+    Uniform prior over a finite interval [xmin, xmax].
+
+    Attributes:
+        xmin (float): Lower bound of the interval.
+        xmax (float): Upper bound of the interval.
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    xmin: float
+    xmax: float
+
+    def __repr__(self):
+        return f"UniformPrior(xmin={self.xmin}, xmax={self.xmax}, parameter_names={self.parameter_names})"
+
+    def __init__(
+        self,
+        xmin: float,
+        xmax: float,
+        parameter_names: list[str],
+    ):
+        assert len(parameter_names) == 1, "UniformPrior needs to be 1D distributions"
+        self.xmax = xmax
+        self.xmin = xmin
+        super().__init__(
+            [UniformDistribution([f"{parameter_names[0]}_base"])],
+            [
+                ScaleTransform(
+                    (
+                        [f"{parameter_names[0]}_base"],
+                        [f"{parameter_names[0]}-({xmin})"],
+                    ),
+                    xmax - xmin,
+                ),
+                OffsetTransform(
+                    ([f"{parameter_names[0]}-({xmin})"], parameter_names),
+                    xmin,
+                ),
+            ],
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class GaussianPrior(SequentialTransformPrior):
+    """
+    Gaussian (normal) prior with specified mean and standard deviation.
+
+    Attributes:
+        mu (float): Mean of the distribution.
+        sigma (float): Standard deviation of the distribution.
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    mu: float
+    sigma: float
+
+    def __repr__(self):
+        return f"GaussianPrior(mu={self.mu}, sigma={self.sigma}, parameter_names={self.parameter_names})"
+
+    def __init__(
+        self,
+        mu: float,
+        sigma: float,
+        parameter_names: list[str],
+    ):
+        """
+        A convenient wrapper distribution on top of the StandardNormalDistribution class
+        which scale and translate the distribution according to the mean and standard deviation.
+
+        Args
+            mu: The mean of the distribution.
+            sigma: The standard deviation of the distribution.
+            parameter_names: A list of names for the parameters of the prior.
+        """
+        assert len(parameter_names) == 1, "GaussianPrior needs to be 1D distributions"
+        self.mu = mu
+        self.sigma = sigma
+        super().__init__(
+            [StandardNormalDistribution([f"{parameter_names[0]}_base"])],
+            [
+                ScaleTransform(
+                    (
+                        [f"{parameter_names[0]}_base"],
+                        [f"{parameter_names[0]}-({mu})"],
+                    ),
+                    sigma,
+                ),
+                OffsetTransform(
+                    ([f"{parameter_names[0]}-({mu})"], parameter_names),
+                    mu,
+                ),
+            ],
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class SinePrior(BoundedMixin, SequentialTransformPrior):
+    """
+    Prior with PDF proportional to sin(x) over [0, pi].
+
+    Attributes:
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    xmin: float = 0.0
+    xmax: float = jnp.pi
+
+    def __repr__(self):
+        return f"SinePrior(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str]):
+        assert len(parameter_names) == 1, "SinePrior needs to be 1D distributions"
+        super().__init__(
+            [UniformPrior(-1.0, 1.0, [f"cos({parameter_names[0]})"])],
+            [
+                reverse_bijective_transform(
+                    CosineTransform(
+                        (
+                            [f"{parameter_names[0]}"],
+                            [f"cos({parameter_names[0]})"],
+                        )
+                    )
+                )
+            ],
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class CosinePrior(BoundedMixin, SequentialTransformPrior):
+    """
+    Prior with PDF proportional to cos(x) over [-pi/2, pi/2].
+
+    Attributes:
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    xmin: float = -jnp.pi / 2
+    xmax: float = jnp.pi / 2
+
+    def __repr__(self):
+        return f"CosinePrior(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str]):
+        assert len(parameter_names) == 1, "CosinePrior needs to be 1D distributions"
+        super().__init__(
+            [SinePrior([f"{parameter_names[0]}+pi/2"])],
+            [
+                OffsetTransform(
+                    (
+                        (
+                            [f"{parameter_names[0]}+pi/2"],
+                            [f"{parameter_names[0]}"],
+                        )
+                    ),
+                    -jnp.pi / 2,
+                )
+            ],
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class UniformSpherePrior(CombinePrior):
+    """
+    Uniform prior over a sphere, parameterized by magnitude, theta, and phi.
+
+    Attributes:
+        parameter_names (list[str]): Names of the vector, theta, and phi parameters.
+    """
+
+    def __repr__(self):
+        return f"UniformSpherePrior(parameter_names={self.parameter_names})"
+
+    def __init__(self, parameter_names: list[str], max_mag: float = 1.0):
+        assert len(parameter_names) == 1, (
+            "UniformSpherePrior only takes the name of the vector"
+        )
+        parameter_names = [
+            f"{parameter_names[0]}_{suffix}" for suffix in ("mag", "theta", "phi")
+        ]
+        super().__init__(
+            [
+                UniformPrior(0.0, max_mag, [parameter_names[0]]),
+                SinePrior([parameter_names[1]]),
+                UniformPrior(0.0, 2 * jnp.pi, [parameter_names[2]]),
+            ]
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class RayleighPrior(BoundedMixin, SequentialTransformPrior):
+    """
+    Rayleigh distribution prior with scale parameter sigma.
+
+    Attributes:
+        sigma (float): Scale parameter of the Rayleigh distribution.
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    sigma: float
+    xmin: float = 0.0
+    xmax: float = jnp.inf
+
+    def __repr__(self):
+        return (
+            f"RayleighPrior(sigma={self.sigma}, parameter_names={self.parameter_names})"
+        )
+
+    def __init__(
+        self,
+        sigma: float,
+        parameter_names: list[str],
+    ):
+        assert len(parameter_names) == 1, "RayleighPrior needs to be 1D distributions"
+        self.sigma = sigma
+        super().__init__(
+            [UniformPrior(0.0, 1.0, [f"{parameter_names[0]}_base"])],
+            [
+                RayleighTransform(
+                    ([f"{parameter_names[0]}_base"], parameter_names),
+                    sigma=sigma,
+                )
+            ],
+        )
+
+
+@jaxtyped(typechecker=typechecker)
+class PowerLawPrior(SequentialTransformPrior):
+    """
+    Power-law prior over [xmin, xmax] with exponent alpha.
+
+    Attributes:
+        xmin (float): Lower bound of the interval.
+        xmax (float): Upper bound of the interval.
+        alpha (float): Power-law exponent.
+        parameter_names (list[str]): Name of the parameter.
+    """
+
+    xmin: float
+    xmax: float
+    alpha: float
+
+    def __repr__(self):
+        return f"PowerLawPrior(xmin={self.xmin}, xmax={self.xmax}, alpha={self.alpha}, naming={self.parameter_names})"
+
+    def __init__(
+        self,
+        xmin: float,
+        xmax: float,
+        alpha: float,
+        parameter_names: list[str],
+    ):
+        assert len(parameter_names) == 1, "Power law needs to be 1D distributions"
+        self.xmax = xmax
+        self.xmin = xmin
+        self.alpha = alpha
+        assert self.xmin < self.xmax, "xmin must be less than xmax"
+        assert self.xmin > 0.0, "x must be positive"
+        super().__init__(
+            [UniformDistribution([f"{parameter_names[0]}_base"])],
+            [
+                PowerLawTransform(
+                    (
+                        [f"{parameter_names[0]}_base"],
+                        parameter_names,
+                    ),
+                    xmin,
+                    xmax,
+                    alpha,
+                ),
+            ],
+        )
