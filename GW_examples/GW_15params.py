@@ -173,13 +173,8 @@ periodic_idx = jnp.array(
 
 def logprior_phys(x: jax.Array) -> jax.Array:
     """
-    Physics prior that matches the GW150914_IMRPhenomPV2.py CombinePrior:
-      - M_c, q, t_c, phase_c, psi, ra: uniform (handled by box bounds)
-      - d_L:      p(d_L) ∝ d_L^2             (PowerLawPrior with index=2)
-      - iota:     p(iota) ∝ sin(iota)        (SinePrior)
-      - dec:      p(dec) ∝ cos(dec)          (CosinePrior)
-      - s1, s2:   isotropic spins (UniformSpherePrior) in (mag, theta, phi):
-                    p(r,θ,φ) ∝ r^2 sin(θ)
+    Prior that directly calls the CombinePrior 'prior' from GW150914_IMRPhenomPV2.py.
+    x is the 15D parameter vector in the order used by your sampler.
     """
     (
         M_c, q,
@@ -191,32 +186,30 @@ def logprior_phys(x: jax.Array) -> jax.Array:
         ra, dec,
     ) = x
 
-    eps = 1e-16
-    logp = 0.0
+    # Build the named dict in the SAME parameterization that GW150914_IMRPhenomPV2 uses.
+    params = {
+        "M_c": M_c,
+        "q": q,
+        # UniformSpherePrior("s1") / "s2" expand to these components
+        "s1_mag": s1_mag,
+        "s1_theta": s1_th,
+        "s1_phi": s1_ph,
+        "s2_mag": s2_mag,
+        "s2_theta": s2_th,
+        "s2_phi": s2_ph,
+        "iota": iota,
+        "d_L": d_L,
+        "t_c": t_c,
+        "phase_c": phase_c,
+        "psi": psi,
+        "ra": ra,
+        "dec": dec,
+    }
 
-    # spins: UniformSpherePrior ~ r^2 * sin(theta) for each spin
-    logp += 2.0 * jnp.log(jnp.clip(s1_mag, eps))
-    logp += jnp.log(jnp.clip(jnp.sin(s1_th), eps))
-
-    logp += 2.0 * jnp.log(jnp.clip(s2_mag, eps))
-    logp += jnp.log(jnp.clip(jnp.sin(s2_th), eps))
-
-    # inclination: SinePrior -> p(iota) ∝ sin(iota)
-    logp += jnp.log(jnp.clip(jnp.sin(iota), eps))
-
-    # distance: PowerLawPrior(index=2) -> p(d_L) ∝ d_L^2
-    logp += 2.0 * jnp.log(jnp.clip(d_L, eps))
-
-    # declination: CosinePrior -> p(dec) ∝ cos(dec)
-    logp += jnp.log(jnp.clip(jnp.cos(dec), eps))
-
-    
-
-    return logp
-
-
-
-
+    # This is EXACTLY what Jim does before adding Jacobians from sample_transforms:
+    # prior = self.prior.log_prob(named_params)
+    # (we are not using sample_transforms, so no Jacobian term here)
+    return prior.log_prob(params)
 
 
 
@@ -225,6 +218,9 @@ def logprior_phys(x: jax.Array) -> jax.Array:
 
 
 
+# three detector-frame transforms were defined earlier in your file as
+#   frame_transforms = sample_transforms[1:4]
+# we keep those as-is for the distance / tc / sky stuff.
 
 def loglike_x(x: jax.Array) -> jax.Array:
     (
@@ -237,6 +233,7 @@ def loglike_x(x: jax.Array) -> jax.Array:
         ra, dec,
     ) = x
 
+    # 1. Start in the PRIOR coordinate system (same as in GW150914_IMRPhenomPV2)
     params = {
         "M_c": M_c,
         "q": q,
@@ -255,19 +252,26 @@ def loglike_x(x: jax.Array) -> jax.Array:
         "dec": dec,
     }
 
-    # Derived parameter required by the waveform
-    params["eta"] = q / (1.0 + q) ** 2
+    # 2. Apply the SAME likelihood_transforms as Jim does
+    #    (MassRatioToSymmetricMassRatioTransform + two SphereSpinToCartesianSpinTransform)
+    named_for_like = params
+    for tr in LIKELIHOOD_TRANSFORMS_FOR_SAMPLER:
+        named_for_like = tr.forward(named_for_like)
 
-    # Cartesian spin components (with underscores, as expected by RippleIMRPhenomPv2)
-    params["s1_x"] = s1_mag * jnp.sin(s1_th) * jnp.cos(s1_ph)
-    params["s1_y"] = s1_mag * jnp.sin(s1_th) * jnp.sin(s1_ph)
-    params["s1_z"] = s1_mag * jnp.cos(s1_th)
+    # 3. Your frame_transforms (distance to d_hat, tc/phase/sky transforms)
+    #    – this is what Jim does in the waveform/likelihood, you already have it set up.
+    #    If you previously applied frame_transforms *inside* loglike_x, keep that logic here,
+    #    but now operate on 'named_for_like' instead of the old manual dict.
+    for tr in frame_transforms:
+        named_for_like, _ = tr.inverse(named_for_like)  # or .forward/.backward depending on how you used them before
 
-    params["s2_x"] = s2_mag * jnp.sin(s2_th) * jnp.cos(s2_ph)
-    params["s2_y"] = s2_mag * jnp.sin(s2_th) * jnp.sin(s2_ph)
-    params["s2_z"] = s2_mag * jnp.cos(s2_th)
+    # 4. Evaluate the Jim likelihood on the fully transformed dict
+    return likelihood.evaluate(named_for_like, {})
 
-    return likelihood.evaluate(params, {})
+
+
+
+
 
 
 
@@ -740,14 +744,14 @@ sys.argv = [
     "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
     "--nr-of-samples", "10000",        
 
-    "--n-effective", "6500",
-    "--n-active", "6500",
-    "--n-prior", "130000",
+    "--n-effective", "1000",
+    "--n-active", "1000",
+    "--n-prior", "5000",
 
-    "--n-total", "11000",
-    "--pc-n-steps", "450",
-    "--pc-n-max-steps", "500",
-    "--keep-max", "12000",
+    "--n-total", "1000",
+    "--pc-n-steps", "50",
+    "--pc-n-max-steps", "50",
+    "--keep-max", "2000",
     "--random-state", "0",
 
     "--metric", "ess",
