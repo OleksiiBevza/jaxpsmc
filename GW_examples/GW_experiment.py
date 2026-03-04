@@ -596,6 +596,158 @@ def _block_tree(x):
     return tree_map(_b, x)
 
 
+
+def plot_diagnostics(out, n_active, n_dims, outdir,
+                                  filename="diagnostics_core_long.pdf"):
+    """
+    Two-page PDF with one plot per row (full-width subplots):
+
+    Page 1:
+        1) beta(t)
+        2) ESS(t)
+        3) logZ(t)
+
+    Page 2:
+        4) acceptance(t)
+        5) sigma(t)  (reconstructed from efficiency, beta>0 only)
+    """
+    import os
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    T = int(np.asarray(out.state.t))
+    if T < 2:
+        raise ValueError(f"Not enough iterations recorded (t={T}).")
+
+    it     = np.arange(T)
+    beta   = np.asarray(out.state.beta[:T]).reshape(-1)
+    ess    = np.asarray(out.state.ess[:T]).reshape(-1)
+    accept = np.asarray(out.state.accept[:T]).reshape(-1)
+    logz   = np.asarray(out.state.logz[:T]).reshape(-1)
+    eff    = np.asarray(out.state.efficiency[:T]).reshape(-1)
+
+    # proposal scale normalisation (same as in mutate())
+    norm_ref = 2.38 / np.sqrt(n_dims)
+
+    # sigma only meaningful once beta > 0
+    mask_sigma = beta > 0.0
+    it_sigma   = it[mask_sigma]
+    sigma      = eff[mask_sigma] * norm_ref
+
+    # useful ratios
+    ess_ratio = ess / max(1, n_active)
+
+    # a bit taller than A4
+    figsize = (8.27, 13.0)  # width, height in inches
+
+    save_path = os.path.join(outdir, filename)
+
+    with PdfPages(save_path) as pdf:
+        # ==========================
+        # PAGE 1: beta, ESS, logZ
+        # ==========================
+        fig, axes = plt.subplots(
+            nrows=3,
+            ncols=1,
+            figsize=figsize,
+            sharex=False,
+            constrained_layout=True,
+        )
+        fig.suptitle("SMC core diagnostics – page 1/2", fontsize=14)
+
+        # 1) beta(t)
+        ax = axes[0]
+        ax.plot(it, beta, marker="o", linewidth=1)
+        ax.set_title("beta(t)")
+        ax.set_xlabel("SMC iteration")
+        ax.set_ylabel("beta")
+        ax.set_ylim(min(-0.02, beta.min()), max(1.02, beta.max()))
+        ax.grid(True, alpha=0.3)
+
+        # 2) ESS(t) and ESS/N_active
+        ax = axes[1]
+        ax.plot(it, ess, marker="o", linewidth=1, label="ESS")
+        ax.plot(it, ess_ratio * n_active,
+                linestyle="--", linewidth=1,
+                label="ESS/N_active × N_active")
+        ax.axhline(n_active, linestyle=":", linewidth=1, label="N_active")
+        ax.set_title("ESS(t)")
+        ax.set_xlabel("SMC iteration")
+        ax.set_ylabel("ESS")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9)
+
+        # 3) logZ(t)
+        ax = axes[2]
+        ax.plot(it, logz, marker="o", linewidth=1)
+        ax.set_title("logZ(t)")
+        ax.set_xlabel("SMC iteration")
+        ax.set_ylabel("logZ")
+        ax.grid(True, alpha=0.3)
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+        # ==========================
+        # PAGE 2: accept, sigma
+        # ==========================
+        fig, axes = plt.subplots(
+            nrows=2,
+            ncols=1,
+            figsize=figsize,
+            sharex=False,
+            constrained_layout=True,
+        )
+        fig.suptitle("SMC core diagnostics – page 2/2", fontsize=14)
+
+        # 4) acceptance(t)
+        ax = axes[0]
+        ax.plot(it, accept, marker="o", linewidth=1)
+        ax.set_title("acceptance rate")
+        ax.set_xlabel("SMC iteration")
+        ax.set_ylabel("accept")
+        ax.set_ylim(0.0, 1.0)
+        ax.grid(True, alpha=0.3)
+
+        # 5) sigma(t) (beta > 0)
+        ax = axes[1]
+        ax.plot(it_sigma, sigma, marker="o", linewidth=1)
+        ax.set_title("proposal scale sigma(t)  (beta > 0)")
+        ax.set_xlabel("SMC iteration")
+        ax.set_ylabel("sigma")
+        ax.grid(True, alpha=0.3)
+
+        pdf.savefig(fig, bbox_inches="tight")
+        plt.close(fig)
+
+    print(f"Saved core diagnostics PDF to {save_path}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ###################################################
 # RUNNER
 ###################################################
@@ -737,6 +889,9 @@ def run_event_and_save_posteriors(
     # save
     outdir = next_run_dir(os.path.join(out_root, event_name))
 
+    # create diagnostics PDF (beta, ESS, logZ, acceptance, sigma)
+    plot_diagnostics(out, n_active=n_active, n_dims=D, outdir=outdir)
+
     # ------------------------------------------------------------------
     # SAVE *YOUR* POSTERIOR IN ONE HDF5 FILE (like GW_15params.py)
     # ------------------------------------------------------------------
@@ -866,6 +1021,13 @@ def run_event_and_save_posteriors(
         color="blue",
         hist_kwargs={"density": True},
     )
+
+    # Legend
+    handles = [
+        plt.Line2D([], [], color="blue", label="sampler"),
+        plt.Line2D([], [], color="red", label="True Normal"),
+    ]
+    fig.legend(handles=handles, loc="upper right")
 
     for ax in fig.get_axes():
         ax.grid(False)
