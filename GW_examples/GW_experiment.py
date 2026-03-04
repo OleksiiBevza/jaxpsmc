@@ -354,20 +354,6 @@ likelihood = BaseTransientLikelihoodFD(
 
 
 
-
-
-
-
-
-
-
-
-import jax
-import jax.numpy as jnp
-import equinox as eqx
-from typing import Dict, Iterable, Tuple
-import numpy as np
-
 # Import the necessary transform classes for type checking
 from GW_prior import (
     ScaleTransform,
@@ -382,6 +368,20 @@ from GW_prior import (
     PowerLawPrior,
     GaussianPrior,
 )
+
+
+
+
+
+
+
+import jax
+import jax.numpy as jnp
+import equinox as eqx
+from typing import Dict, Iterable, Tuple
+import numpy as np
+
+
 
 class JimPriorAdapter(eqx.Module):
     """
@@ -737,21 +737,39 @@ def run_event_and_save_posteriors(
     # save
     outdir = next_run_dir(os.path.join(out_root, event_name))
 
+    # ------------------------------------------------------------------
+    # SAVE *YOUR* POSTERIOR IN ONE HDF5 FILE (like GW_15params.py)
+    # ------------------------------------------------------------------
+    h5_path = os.path.join(outdir, "posterior.hdf5")
+
     meta = {
         "event": event_name,
         "parameter_names": names,
         "n_samples": int(theta.shape[0]),
-        "logz": logZ,
-        "logz_err": logZerr,
+        "logz": float(logZ),
+        "logz_err": float(logZerr),
         "seed": int(seed),
         "note": "Posterior draws from sampler",
     }
-    with open(os.path.join(outdir, "meta.json"), "w") as f:
-        json.dump(meta, f, indent=2)
 
-    for j, nm in enumerate(names):
-        with open(os.path.join(outdir, f"{nm}_posterior.json"), "w") as f:
-            json.dump(theta[:, j].astype(float).tolist(), f)
+    with h5py.File(h5_path, "w") as f_h5:
+        # samples: shape (n_samples, D)
+        f_h5.create_dataset("samples", data=theta)
+
+        # parameter names as fixed-length ASCII strings
+        f_h5.create_dataset("names", data=np.asarray(names, dtype="S"))
+
+        # metadata as HDF5 attributes
+        for k, v in meta.items():
+            # HDF5 attrs can't store Python lists nicely -> store names list as a single string
+            if k == "parameter_names":
+                f_h5.attrs[k] = ",".join(v)
+            else:
+                f_h5.attrs[k] = v
+
+    print(f"[{event_name}] wrote posterior HDF5: {h5_path}")
+
+
 
 
 
@@ -834,7 +852,7 @@ def run_event_and_save_posteriors(
         plot_density=True,
         fill_contours=True,
         bins=30,
-        color="black",
+        color="red",
         hist_kwargs={"density": True},
     )
 
@@ -845,7 +863,7 @@ def run_event_and_save_posteriors(
         plot_density=True,
         fill_contours=False,
         bins=30,
-        color="tab:orange",
+        color="blue",
         hist_kwargs={"density": True},
     )
 
