@@ -1,9 +1,0 @@
- Package location: /gpfs/home5/obevza/jim-gw-jax-team/src/jimgw/__init__.py
-x64 enabled? True
-[GW150914] sampler.run: 9.54 min
-[GW150914] posterior_jax: 0.07 min
-Sampling complete!
-n_prior (adjusted) = 149500 (input was 149500 )
-samples.shape = (10000, 15)
-logZ = 246.2349795079326 logZerr = nan
-[GW150914] saved 10000 samples to: ./GW_events/GW150914/run_001

@@ -756,38 +756,110 @@ def run_event_and_save_posteriors(
 
 
 
-    # theta: (n_samples, D), ranges: list[(low, high)] from prior_smc.bounds()
-    plot_ranges = []
-    for j, (lo, hi) in enumerate(ranges):
-        lo = float(lo)
-        hi = float(hi)
-        if not np.isfinite(lo) or not np.isfinite(hi):
-            # Replace ±inf / NaN by empirical min/max from samples
-            lo = float(np.nanmin(theta[:, j]))
-            hi = float(np.nanmax(theta[:, j]))
-            # Optional: add a small padding
-            pad = 0.05 * (hi - lo) if hi > lo else 1.0
-            lo -= pad
-            hi += pad
-        plot_ranges.append((lo, hi))
 
 
-    # corner plot 
+    # --- 1) TRUE posterior HDF5 path (you said it's the same) ---
+    TRUE_FILE = "/home/obevza/jaxpsmc/GW_examples/GW150914_095045_data0_1126259462-391_analysis_H1L1_result.hdf5"
+
+    # --- 2) mapping from YOUR parameter names -> TRUE posterior dataset names ---
+    name_map = {
+        "M_c":      "chirp_mass",
+        "q":        "mass_ratio",
+        "s1_mag":   "a_1",
+        "s1_theta": "tilt_1",
+        "s1_phi":   "phi_1",
+        "s2_mag":   "a_2",
+        "s2_theta": "tilt_2",
+        "s2_phi":   "phi_2",
+        "iota":     "iota",
+        "d_L":      "luminosity_distance",
+        "t_c":      "geocent_time",
+        "phase_c":  "phase",
+        "psi":      "psi",
+        "ra":       "ra",
+        "dec":      "dec",
+    }
+
+    # IMPORTANT: in the true file, geocent_time is absolute GPS.
+    # In your sampler, t_c is usually stored as an offset around gps_ref.
+    gps_ref = 1126259462.4  # GW150914 trigger time used in your scripts
+
+    def load_true_samples(true_file: str, names: list[str]) -> np.ndarray:
+        with h5py.File(true_file, "r") as f_true:
+            post_true = f_true["posterior"]
+            cols = []
+            for nm in names:
+                true_nm = name_map[nm]  # will KeyError if nm not in map (good: forces correctness)
+                arr = post_true[true_nm][:]
+
+                # Convert absolute geocent_time -> offset t_c (seconds)
+                if nm == "t_c":
+                    arr = arr - gps_ref
+
+                cols.append(arr)
+
+        return np.column_stack(cols)
+
+    samples_true = load_true_samples(TRUE_FILE, names)
+    samples_ours = np.asarray(theta)
+
+    # Optional: nicer LaTeX labels (must match your `names` order!)
+    labels_latex = [
+        r"$\mathcal{M}_c\ [M_\odot]$",
+        r"$q$",
+        r"$s_{1,\mathrm{mag}}$",
+        r"$\theta_1$",
+        r"$\phi_1$",
+        r"$s_{2,\mathrm{mag}}$",
+        r"$\theta_2$",
+        r"$\phi_2$",
+        r"$\iota$",
+        r"$d_L\ \mathrm{[Mpc]}$",
+        r"$t_c$",
+        r"$\phi_c$",
+        r"$\psi$",
+        r"$\alpha$",
+        r"$\delta$",
+    ]
+
+    # --- 3) Build overlay: TRUE first (sets axis limits), then OURS on same fig ---
+    fig = plt.figure(figsize=(16, 16))
+
     fig = corner.corner(
-        theta,
-        labels=names,
-        range=plot_ranges,
+        samples_true,
+        fig=fig,
+        labels=labels_latex if len(labels_latex) == len(names) else names,
         show_titles=True,
         plot_datapoints=False,
         plot_density=True,
         fill_contours=True,
         bins=30,
+        color="black",
+        hist_kwargs={"density": True},
     )
+
+    corner.corner(
+        samples_ours,
+        fig=fig,
+        plot_datapoints=False,
+        plot_density=True,
+        fill_contours=False,
+        bins=30,
+        color="tab:orange",
+        hist_kwargs={"density": True},
+    )
+
     for ax in fig.get_axes():
         ax.grid(False)
 
-    fig.savefig(os.path.join(outdir, "corner.png"), dpi=150, bbox_inches="tight")
+    save_path = os.path.join(outdir, "corner_true_vs_mine.png")
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+    print("Saved overlay corner:", save_path)
+
+
+
 
     print(f"[{event_name}] saved {theta.shape[0]} samples to: {outdir}")
     return outdir, theta
@@ -826,7 +898,7 @@ ranges = [tuple(map(float, b)) for b in bounds]
 
 sys.argv = [
     "notebook",
-    "--outdir", "./GW_events",     
+    "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
     "--nr-of-samples", "10000",        
 
     "--n-effective", "6500",
