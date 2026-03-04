@@ -369,12 +369,6 @@ from GW_prior import (
     GaussianPrior,
 )
 
-
-
-
-
-
-
 import jax
 import jax.numpy as jnp
 import equinox as eqx
@@ -383,131 +377,172 @@ import numpy as np
 
 
 
+
+
+
+
+
+
 class JimPriorAdapter(eqx.Module):
     """
     Thin adapter to use a Jim prior with the SMC sampler.
-
-    - base_prior: raw Jim prior (CombinePrior / CompositePrior).
-    - sample(key, n) -> (n, D) array.
-    - logpdf(x) uses base_prior.log_prob on a dict.
+    Now with correct bounds extraction via forward transform evaluation.
     """
 
     base_prior: 'JimPriorBase'
     parameter_names: tuple[str, ...]
-    params: jax.Array  # only used for dtype/shape in SMC, not for computation
+    params: jax.Array  # dummy, now float64
 
     def __init__(self, base_prior: 'JimPriorBase'):
-        # base_prior must be the ORIGINAL Jim prior (e.g. CombinePrior)
         self.base_prior = base_prior
         self.parameter_names = tuple(base_prior.parameter_names)
         dim = len(self.parameter_names)
-        # dummy params just to satisfy sampler_jax expectations
-        self.params = jnp.zeros((dim, 2), dtype=jnp.float32)
+        # Use float64 to match Jim's computations
+        self.params = jnp.zeros((dim, 2), dtype=jnp.float64)
 
-    # ------------------------------------------------------------------
-    # Basic properties
-    # ------------------------------------------------------------------
+
+    def logpdf(self, x: jax.Array) -> jax.Array:
+        """Log probability for an array of shape (n, D) or (D,). Returns (n,) log probabilities."""
+        x = jnp.atleast_2d(x)
+        def _logprob_one(xi):
+            z = {name: xi[i] for i, name in enumerate(self.parameter_names)}
+            return self.base_prior.log_prob(z)
+        return jax.vmap(_logprob_one)(x)
+
+    def logpdf1(self, x: jax.Array) -> jax.Array:
+        """Log probability for a single point (D,)."""
+        x = jnp.asarray(x)
+        assert x.ndim == 1 and x.shape[0] == self.dim
+        return self.logpdf(x)[0]
+
+
+
+    def sample(self, key: jax.Array, n: int) -> jax.Array:
+        """Draw n samples from the prior, return as (n, D) array."""
+        samples_dict = self.base_prior.sample(key, n)
+        cols = [samples_dict[name] for name in self.parameter_names]
+        return jnp.stack(cols, axis=1)
+
+    def sample1(self, key: jax.Array) -> jax.Array:
+        """Single sample: (D,)"""
+        return self.sample(key, 1)[0]        
+
     @property
     def dim(self) -> int:
         return len(self.parameter_names)
+    
 
-    # ------------------------------------------------------------------
-    # Bounds: (D, 2) array, consistent with Jim prior support
-    # ------------------------------------------------------------------
+
     def bounds(self) -> jax.Array:
-        """Return per-parameter bounds in the SMC ordering."""
+        """Return per‑parameter bounds in the SMC ordering, (D,2)."""
         bound_dict = self._get_bounds(self.base_prior)
-        # Ensure order matches self.parameter_names
         out = []
         for name in self.parameter_names:
             low, high = bound_dict.get(name, (-jnp.inf, jnp.inf))
-            out.append(jnp.array([low, high], dtype=jnp.float32))
-        return jnp.stack(out)  # (D, 2)
+            out.append(jnp.array([low, high], dtype=jnp.float64))
+        return jnp.stack(out)
+
+
 
     def _get_bounds(self, prior):
-        """Recursively compute bounds for a prior, returning dict {name: (low, high)}."""
-        # CompositePrior includes CombinePrior and SequentialTransformPrior
-        if isinstance(prior, CompositePrior):
-            # CombinePrior: multiple independent priors
-            if hasattr(prior, 'base_prior') and isinstance(prior.base_prior, (list, tuple)):
-                bound_dict = {}
-                for child in prior.base_prior:
-                    child_bounds = self._get_bounds(child)
-                    bound_dict.update(child_bounds)
-                return bound_dict
-            # SequentialTransformPrior: base prior + transforms
-            elif hasattr(prior, 'transforms') and hasattr(prior, 'base_prior'):
-                # base_prior is a list of one element
-                base_bounds = self._get_bounds(prior.base_prior[0])
-                # Apply transforms in forward order
-                for transform in prior.transforms:
-                    base_bounds = self._apply_transform_to_bounds(transform, base_bounds)
-                return base_bounds
-            else:
-                # Fallback (should not happen): trace leaf priors
-                leaf_priors = prior.trace_prior_parent([]) if hasattr(prior, 'trace_prior_parent') else [prior]
-                bound_dict = {}
-                for p in leaf_priors:
-                    low, high = self._bounds_for_leaf(p)
-                    for name in p.parameter_names:
-                        bound_dict[name] = (low, high)
-                return bound_dict
+        # Direct handling for known prior types
+        if isinstance(prior, SinePrior):
+            # SinePrior yields parameter in [0, π]
+            return {name: (0.0, float(jnp.pi)) for name in prior.parameter_names}
+        if isinstance(prior, CosinePrior):
+            # CosinePrior yields parameter in [-π/2, π/2]
+            return {name: (-float(jnp.pi/2), float(jnp.pi/2)) for name in prior.parameter_names}
+
+        # Then handle CompositePrior / SequentialTransformPrior as before
+        if hasattr(prior, 'transforms') and hasattr(prior, 'base_prior'):
+            base_bounds = self._get_bounds(prior.base_prior[0])
+            for transform in prior.transforms:
+                base_bounds = self._apply_transform_to_bounds(transform, base_bounds)
+            return base_bounds
+        elif hasattr(prior, 'base_prior') and isinstance(prior.base_prior, (list, tuple)):
+            bound_dict = {}
+            for child in prior.base_prior:
+                bound_dict.update(self._get_bounds(child))
+            return bound_dict
         else:
-            # Single leaf prior (e.g., UniformDistribution, StandardNormalDistribution)
             low, high = self._bounds_for_leaf(prior)
             return {name: (low, high) for name in prior.parameter_names}
 
+
+
     def _apply_transform_to_bounds(self, transform, bounds_dict):
-        """Apply a single transform to an interval dictionary."""
         input_names, output_names = transform.name_mapping
         new_bounds = {}
         for in_name, out_name in zip(input_names, output_names):
-            if in_name in bounds_dict:
-                low_in, high_in = bounds_dict[in_name]
+            if in_name not in bounds_dict:
+                new_bounds[out_name] = (-jnp.inf, jnp.inf)
+                continue
+            low_in, high_in = bounds_dict[in_name]
 
-                # Handle known transform types
-                if isinstance(transform, ScaleTransform):
-                    scale = transform.scale
-                    low_out = low_in * scale
-                    high_out = high_in * scale
-                elif isinstance(transform, OffsetTransform):
-                    offset = transform.offset
-                    low_out = low_in + offset
-                    high_out = high_in + offset
-                elif isinstance(transform, CosineTransform):
-                    # input: cos(theta) in [-1, 1]; output: theta in [0, pi]
-                    # The base prior should have given [-1,1].
-                    # arccos is decreasing, so we swap after mapping.
+            # Handle each known transform type
+            if isinstance(transform, ScaleTransform):
+                scale = transform.scale
+                low_out = low_in * scale
+                high_out = high_in * scale
+
+            elif isinstance(transform, OffsetTransform):
+                offset = transform.offset
+                low_out = low_in + offset
+                high_out = high_in + offset
+
+            elif isinstance(transform, CosineTransform):
+                # CosineTransform maps theta -> cos(theta). Here we are applying it in forward direction,
+                # so input is theta, output is cos(theta). Input bounds should be within [0, pi].
+                low_out = jnp.cos(high_in)   # since cosine is decreasing on [0,pi]
+                high_out = jnp.cos(low_in)
+
+            elif isinstance(transform, PowerLawTransform):
+                # PowerLawTransform maps u in [0,1] to x in [xmin, xmax].
+                # We can compute directly without calling forward.
+                alpha = transform.alpha
+                xmin = transform.xmin
+                xmax = transform.xmax
+                def _power_law(u):
+                    return (xmin**(1+alpha) + u*(xmax**(1+alpha) - xmin**(1+alpha)))**(1/(1+alpha))
+                low_out = _power_law(low_in)
+                high_out = _power_law(high_in)
+
+            elif isinstance(transform, RayleighTransform):
+                # RayleighTransform maps u in [0,1] to x in [0, inf).
+                sigma = transform.sigma
+                def _rayleigh(u):
+                    return sigma * jnp.sqrt(-2 * jnp.log(1 - u))
+                low_out = _rayleigh(low_in)
+                high_out = _rayleigh(high_in)
+
+            elif hasattr(transform, 'base_transform'):
+                # Likely a reversed transform (from reverse_bijective_transform)
+                base = transform.base_transform
+                if isinstance(base, CosineTransform):
+                    # Reversed cosine: forward maps cos(theta) -> theta. Input is cos, output is theta.
                     low_out = jnp.arccos(high_in)
                     high_out = jnp.arccos(low_in)
-                    # Ensure low_out <= high_out (swap if necessary)
-                    low_out, high_out = jnp.minimum(low_out, high_out), jnp.maximum(low_out, high_out)
-                elif isinstance(transform, PowerLawTransform):
-                    # input: u in [0,1]; output: x in [xmin, xmax]
-                    low_out = transform.xmin
-                    high_out = transform.xmax
-                elif isinstance(transform, RayleighTransform):
-                    # input: u in [0,1]; output: x in [0, inf)
-                    low_out = 0.0
-                    high_out = jnp.inf
                 else:
-                    # Unsupported transform → assume unbounded
+                    # Unsupported reversed transform
                     low_out, high_out = -jnp.inf, jnp.inf
-
-                new_bounds[out_name] = (low_out, high_out)
             else:
-                # Input name not found → output is unbounded
-                new_bounds[out_name] = (-jnp.inf, jnp.inf)
+                # Unknown transform type – treat as unbounded
+                low_out, high_out = -jnp.inf, jnp.inf
+
+            # Ensure correct order (transform may be decreasing)
+            low_out, high_out = jnp.minimum(low_out, high_out), jnp.maximum(low_out, high_out)
+            new_bounds[out_name] = (float(low_out), float(high_out))
         return new_bounds
+    
+
 
     @staticmethod
     def _bounds_for_leaf(p):
         """Return (low, high) for a leaf distribution."""
-        # Prefer explicit xmin/xmax if present (BoundedMixin, UniformPrior, PowerLawPrior, etc.)
         if hasattr(p, "xmin") and hasattr(p, "xmax"):
             return float(p.xmin), float(p.xmax)
 
-        # Distribution-specific defaults
+        # Distribution‑specific defaults
         if isinstance(p, UniformDistribution):
             return 0.0, 1.0
         if isinstance(p, (StandardNormalDistribution, GaussianPrior, LogisticDistribution)):
@@ -518,46 +553,6 @@ class JimPriorAdapter(eqx.Module):
         # Fallback: unbounded
         return -jnp.inf, jnp.inf
 
-    # ------------------------------------------------------------------
-    # Sampling: (n, D) interface on top of Jim dict samples
-    # ------------------------------------------------------------------
-    def sample(self, key: jax.Array, n: int) -> jax.Array:
-        """
-        Draw n samples from the Jim prior and return as (n, D) array
-        in the order of `self.parameter_names`.
-        """
-        samples_dict = self.base_prior.sample(key, n)  # dict[name] -> (n,)
-        cols = [samples_dict[name] for name in self.parameter_names]
-        return jnp.stack(cols, axis=1)  # (n, D)
-
-    def sample1(self, key: jax.Array) -> jax.Array:
-        """Single sample: (D,)"""
-        return self.sample(key, 1)[0]
-
-    # ------------------------------------------------------------------
-    # Log density: use Jim's log_prob, per-sample, then vmap
-    # ------------------------------------------------------------------
-    def logpdf(self, x: jax.Array) -> jax.Array:
-        """
-        x: shape (n, D) or (D,)
-        returns: shape (n,)
-        """
-        x = jnp.atleast_2d(x)
-
-        def _logprob_one(xi: jax.Array) -> jax.Array:
-            # xi: shape (D,)
-            z = {name: xi[i] for i, name in enumerate(self.parameter_names)}
-            return self.base_prior.log_prob(z)
-
-        return jax.vmap(_logprob_one)(x)
-
-    def logpdf1(self, x: jax.Array) -> jax.Array:
-        """
-        Single-point log-density: x shape (D,) -> scalar.
-        """
-        x = jnp.asarray(x)
-        assert x.ndim == 1 and x.shape[0] == self.dim
-        return self.logpdf(x)[0]
 
 
 
@@ -1078,17 +1073,17 @@ ranges = [tuple(map(float, b)) for b in bounds]
 
 sys.argv = [
     "notebook",
-    "--outdir", "/home/obevza/jaxpsmc/GW_examples",   
+    "--outdir", "/home/obevza/jaxpsmc/GW_examples",       
     "--nr-of-samples", "10000",        
 
-    "--n-effective", "6500",
-    "--n-active", "6500",
-    "--n-prior", "149500",
+    "--n-effective", "7000",
+    "--n-active", "7000",
+    "--n-prior", "175000",
 
-    "--n-total", "11000",
+    "--n-total", "10000",
     "--pc-n-steps", "450",
-    "--pc-n-max-steps", "500",
-    "--keep-max", "20000",
+    "--pc-n-max-steps", "850",
+    "--keep-max", "30000",
     "--random-state", "0",
 
     "--metric", "ess",
