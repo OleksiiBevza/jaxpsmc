@@ -2,12 +2,6 @@
 # 1. PACKAGES
 ##################################################################################
 
-# ! pip install -e "C:\Users\oleks\jim"
-import jimgw
-print(f" Package location: {jimgw.__file__}")
-
-from GW150914_IMRPhenomPV2 import *
-
 # my sampler here
 from sampler.sampler_jax import *
 from sampler.sampler_helper_jax import *
@@ -16,129 +10,9 @@ from sampler.sampler_helper_jax import *
 from sampler.prior_jax import *
 jax.config.update("jax_enable_x64", True)
 
-
-# diagnostics
-import os
-import json
-import re
-import sys
-import argparse
-
-
-import logging
-logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
-
-from jax.tree_util import tree_map
-import time
-import numpy as np
-import matplotlib.pyplot as plt
-import corner
-import matplotlib as mpl
-mpl.rcParams["axes.grid"] = False
-
-import h5py
-
-
-
-
-
-
-
-
-
-
-
-##################################################################################
-# 2. ARGUMENTS
-##################################################################################
-### The argparse is used to store and process any user input we want to pass on
-parser = argparse.ArgumentParser(description="Run experiment with specified parameters.")
-
-
-parser.add_argument(
-    "--outdir",
-    type=str,
-    required=True,
-    help="The output directory, where things will be stored"
-)
-
-
-parser.add_argument(
-    "--nr-of-samples",
-    type=int,
-    default=10000,
-    help="Number of samples to be geerated"
-)
-
-
-
-# Everything below here are hyperparameters for sampler
-parser.add_argument(
-    "--prior-low",
-    type=float,
-    default=-20.0,
-    help="Prior lower bound."
-)
-parser.add_argument(
-    "--prior-high",
-    type=float,
-    default=20.0,
-    help="Prior upper bound."
-)
-
-parser.add_argument("--n-total", type=int, default=4096)
-parser.add_argument("--pc-n-steps", type=int, default=8)
-parser.add_argument("--pc-n-max-steps", type=int, default=80)
-parser.add_argument("--keep-max", type=int, default=4096)
-parser.add_argument("--random-state", type=int, default=0)
-
-parser.add_argument("--precondition", action="store_true", default=True)  # True by default
-parser.add_argument("--no-precondition", action="store_false", dest="precondition")
-
-parser.add_argument("--dynamic", action="store_true", default=True)
-parser.add_argument("--no-dynamic", action="store_false", dest="dynamic")
-
-parser.add_argument("--metric", type=str, default="ess", choices=["ess", "uss"])
-parser.add_argument("--resample", type=str, default="mult", choices=["mult", "syst"])
-parser.add_argument("--transform", type=str, default="probit", choices=["probit", "logit"])
-
-
-# parser.add_argument("--use-identity-flow", action="store_true", default=True)
-
-parser.add_argument("--n-effective", type=int, required=True)
-parser.add_argument("--n-active", type=int, required=True)
-parser.add_argument("--n-prior", type=int, required=True)
-
-
-parser.add_argument("--proposal-scale", type=float, default=0.0)
-parser.add_argument("--trim-ess", type=float, default=0.99)
-parser.add_argument("--bins", type=int, default=1000)
-parser.add_argument("--bisect-steps", type=int, default=1000)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# configurations
+import jimgw
+print(f" Package location: {jimgw.__file__}")
 import time
 import jax
 import jax.numpy as jnp
@@ -165,16 +39,78 @@ from jimgw.core.single_event.transforms import (
     GeocentricArrivalPhaseToDetectorArrivalPhaseTransform,
 )
 
-jax.config.update("jax_enable_x64", True)
+# diagnostics
+import os
+import json
+import re
+import sys
+import argparse
+import logging
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+from jax.tree_util import tree_map
+import numpy as np
+import matplotlib.pyplot as plt
+import corner
+import matplotlib as mpl
+mpl.rcParams["axes.grid"] = False
+import h5py
 
-###########################################
-########## First we grab data #############
-###########################################
 
+
+
+
+
+
+##############################################################################################
+# 2. ARGUMENTS
+##############################################################################################
+### The argparse is used to store and process any user input we want to pass on
+parser = argparse.ArgumentParser(description="Run experiment with specified parameters.")
+parser.add_argument("--outdir", type=str, required=True, help="The output directory")
+parser.add_argument("--nr-of-samples", type=int, default=10000, help="Number of samples to generate")
+
+# Everything below here are hyperparameters for sampler
+parser.add_argument("--prior-low", type=float, default=-20.0, help="Prior lower bound.")
+parser.add_argument("--prior-high",  type=float, default=20.0, help="Prior upper bound.")
+parser.add_argument("--n-total", type=int, default=4096)
+parser.add_argument("--pc-n-steps", type=int, default=8)
+parser.add_argument("--pc-n-max-steps", type=int, default=80)
+parser.add_argument("--keep-max", type=int, default=4096)
+parser.add_argument("--random-state", type=int, default=0)
+parser.add_argument("--precondition", action="store_true", default=True)  # True by default
+parser.add_argument("--no-precondition", action="store_false", dest="precondition")
+parser.add_argument("--dynamic", action="store_true", default=True)
+parser.add_argument("--no-dynamic", action="store_false", dest="dynamic")
+parser.add_argument("--metric", type=str, default="ess", choices=["ess", "uss"])
+parser.add_argument("--resample", type=str, default="mult", choices=["mult", "syst"])
+parser.add_argument("--transform", type=str, default="probit", choices=["probit", "logit"])
+# parser.add_argument("--use-identity-flow", action="store_true", default=True)
+parser.add_argument("--n-effective", type=int, required=True)
+parser.add_argument("--n-active", type=int, required=True)
+parser.add_argument("--n-prior", type=int, required=True)
+parser.add_argument("--proposal-scale", type=float, default=0.0)
+parser.add_argument("--trim-ess", type=float, default=0.99)
+parser.add_argument("--bins", type=int, default=1000)
+parser.add_argument("--bisect-steps", type=int, default=1000)
+
+
+
+
+
+
+
+
+
+
+
+
+##############################################################################################
+# 3. CONFIGURATIONS OF THE EXPERIMENT
+##############################################################################################
+# grab data
 total_time_start = time.time()
 
-# first, fetch a 4s segment centered on GW150914
-# for the analysis
+# first, fetch a 4s segment centered on GW150914 for the analysis
 gps = 1126259462.4
 start = gps - 2
 end = gps + 2
@@ -210,14 +146,13 @@ for ifo in ifos:
 ###########################################
 ########## Set up waveform ################
 ###########################################
-
 # initialize waveform
 waveform = RippleIMRPhenomPv2(f_ref=20)
+
 
 ###########################################
 ########## Set up priors ##################
 ###########################################
-
 prior = []
 
 # Mass prior
@@ -355,13 +290,10 @@ likelihood = BaseTransientLikelihoodFD(
 
 
 
-
-
-# =============================================================================
-# Build transformed prior for SMC that samples in Jim's unconstrained space
-# =============================================================================
-
-# 1. Compute final parameter names after all sample_transforms
+##############################################################################################
+# 4. TRANSFORM PRIOR FOR SMS IN JIM's UNCONSTARINT SPACE
+##############################################################################################
+# compute final parameter names after all sample_transforms
 current_names = list(prior.parameter_names)
 for t in sample_transforms:
     current_names = t.propagate_name(current_names)
@@ -370,24 +302,27 @@ D_transformed = len(final_names)
 print(f"Physical parameters ({len(prior.parameter_names)}): {prior.parameter_names}")
 print(f"Transformed parameters ({D_transformed}): {final_names}")
 
-# 2. Helper functions to convert between dict and array
+
+# helper functions to convert between dict and array
 def dict_to_array(d, names):
     return jnp.array([d[name] for name in names])
 
 def array_to_dict(x, names):
     return {name: x[i] for i, name in enumerate(names)}
 
-# 3. Sample from the transformed prior (physical -> forward transforms)
+
+# sample from the transformed prior (physical -> forward transforms)
 def sample_transformed_prior(key, n):
     phys_dict = prior.sample(key, n)                     # dict of physical samples, each value shape (n,)
-    # Apply forward transforms sequentially
+    # apply forward transforms sequentially
     current_dict = phys_dict
     for t in sample_transforms:
         current_dict = jax.vmap(t.forward)(current_dict) # vmap over batch
-    # Convert to array in final_names order
+    # convert to array in final_names order
     return jnp.stack([current_dict[name] for name in final_names], axis=1)
 
-# 4. Log‑probability in transformed space (physical log‑prob + log|J|)
+
+# log‑probability in transformed space (physical log‑prob + log|J|)
 def logpdf_transformed(x):
     """
     x : array (D_transformed,) or (n, D_transformed)
@@ -395,7 +330,7 @@ def logpdf_transformed(x):
     """
     def _logpdf_one(xi):
         d = array_to_dict(xi, final_names)
-        # Inverse transforms (reverse order) accumulate log Jacobian
+        # inverse transforms (reverse order) accumulate log Jacobian
         logjac = 0.0
         for t in reversed(sample_transforms):
             d, ld = t.inverse(d)
@@ -408,7 +343,8 @@ def logpdf_transformed(x):
     else:
         return jax.vmap(_logpdf_one)(x)
 
-# 5. Likelihood for unconstrained samples
+
+# likelihood for unconstrained samples
 def gw_loglike_unconstrained(x):
     """
     x : array (D_transformed,) or (n, D_transformed)
@@ -416,10 +352,10 @@ def gw_loglike_unconstrained(x):
     """
     def _like_one(xi):
         d = array_to_dict(xi, final_names)
-        # Inverse transforms to get physical parameters
+        # inverse transforms to get physical parameters
         for t in reversed(sample_transforms):
             d, _ = t.inverse(d)          # ignore logjac
-        # Apply likelihood transforms (original list, already instances)
+        # apply likelihood transforms (original list, already instances)
         for t in likelihood_transforms:
             d = t.forward(d)
         return likelihood.evaluate(d, {})
@@ -429,7 +365,8 @@ def gw_loglike_unconstrained(x):
     else:
         return jax.vmap(_like_one)(x)
 
-# 6. Convert unconstrained samples back to physical space (for posterior comparison)
+
+# convert unconstrained samples back to physical space (for posterior comparison)
 def unconstrained_to_physical(x):
     """
     x : array (n, D_transformed) or (D_transformed,)
@@ -439,7 +376,7 @@ def unconstrained_to_physical(x):
         d = array_to_dict(xi, final_names)
         for t in reversed(sample_transforms):
             d, _ = t.inverse(d)
-        # Return array in original physical order
+        # return array in original physical order
         return jnp.array([d[name] for name in prior.parameter_names])
 
     if x.ndim == 1:
@@ -447,7 +384,8 @@ def unconstrained_to_physical(x):
     else:
         return jax.vmap(_to_phys_one)(x)
 
-# 7. Create a prior object that matches the SMC sampler's expected interface
+
+# create a prior object that matches the SMC sampler expected input
 class TransformedPrior:
     def __init__(self, sample_fn, logpdf_fn, dim):
         self.sample = sample_fn
@@ -456,17 +394,15 @@ class TransformedPrior:
         self.params = jnp.zeros((dim, 2))   # dummy, not used
 
     def bounds(self):
-        # All parameters are unbounded after the transforms
+        # all parameters are unbounded after the transforms
         return jnp.array([[-jnp.inf, jnp.inf]] * self.dim)
-
-    # Add this method:-----------------------------------------------------------------------------------------------------------
+    
     def logpdf1(self, x):
         """
         Log probability for a single point (D,). Returns a scalar.
         """
         return self.logpdf(x)
-    # ---------------------------------------------------------------------------------------------------------------------------
-
+    
 prior_smc = TransformedPrior(
     sample_fn=lambda key, n: sample_transformed_prior(key, n),
     logpdf_fn=logpdf_transformed,
@@ -477,210 +413,10 @@ prior_smc = TransformedPrior(
 
 
 
-# Import the necessary transform classes for type checking
-from GW_prior import (
-    ScaleTransform,
-    OffsetTransform,
-    CosineTransform,
-    PowerLawTransform,
-    RayleighTransform,
-    CompositePrior,
-    UniformDistribution,
-    StandardNormalDistribution,
-    LogisticDistribution,
-    PowerLawPrior,
-    GaussianPrior,
-)
 
-import jax
-import jax.numpy as jnp
-import equinox as eqx
-from typing import Dict, Iterable, Tuple
-import numpy as np
-
-
-
-class JimPriorAdapter(eqx.Module):
-    """
-    Thin adapter to use a Jim prior with the SMC sampler.
-    Now with correct bounds extraction via forward transform evaluation.
-    """
-
-    base_prior: 'JimPriorBase'
-    parameter_names: tuple[str, ...]
-    params: jax.Array  # dummy, now float64
-
-    def __init__(self, base_prior: 'JimPriorBase'):
-        self.base_prior = base_prior
-        self.parameter_names = tuple(base_prior.parameter_names)
-        dim = len(self.parameter_names)
-        # Use float64 to match Jim's computations
-        self.params = jnp.zeros((dim, 2), dtype=jnp.float64)
-
-
-    def logpdf(self, x: jax.Array) -> jax.Array:
-        """Log probability for an array of shape (n, D) or (D,). Returns (n,) log probabilities."""
-        x = jnp.atleast_2d(x)
-        def _logprob_one(xi):
-            z = {name: xi[i] for i, name in enumerate(self.parameter_names)}
-            return self.base_prior.log_prob(z)
-        return jax.vmap(_logprob_one)(x)
-
-    def logpdf1(self, x: jax.Array) -> jax.Array:
-        """Log probability for a single point (D,)."""
-        x = jnp.asarray(x)
-        assert x.ndim == 1 and x.shape[0] == self.dim
-        return self.logpdf(x)[0]
-
-
-
-    def sample(self, key: jax.Array, n: int) -> jax.Array:
-        """Draw n samples from the prior, return as (n, D) array."""
-        samples_dict = self.base_prior.sample(key, n)
-        cols = [samples_dict[name] for name in self.parameter_names]
-        return jnp.stack(cols, axis=1)
-
-    def sample1(self, key: jax.Array) -> jax.Array:
-        """Single sample: (D,)"""
-        return self.sample(key, 1)[0]        
-
-    @property
-    def dim(self) -> int:
-        return len(self.parameter_names)
-    
-
-
-    def bounds(self) -> jax.Array:
-        """Return per‑parameter bounds in the SMC ordering, (D,2)."""
-        bound_dict = self._get_bounds(self.base_prior)
-        out = []
-        for name in self.parameter_names:
-            low, high = bound_dict.get(name, (-jnp.inf, jnp.inf))
-            out.append(jnp.array([low, high], dtype=jnp.float64))
-        return jnp.stack(out)
-
-
-
-    def _get_bounds(self, prior):
-        # Direct handling for known prior types
-        if isinstance(prior, SinePrior):
-            # SinePrior yields parameter in [0, π]
-            return {name: (0.0, float(jnp.pi)) for name in prior.parameter_names}
-        if isinstance(prior, CosinePrior):
-            # CosinePrior yields parameter in [-π/2, π/2]
-            return {name: (-float(jnp.pi/2), float(jnp.pi/2)) for name in prior.parameter_names}
-
-        # Then handle CompositePrior / SequentialTransformPrior as before
-        if hasattr(prior, 'transforms') and hasattr(prior, 'base_prior'):
-            base_bounds = self._get_bounds(prior.base_prior[0])
-            for transform in prior.transforms:
-                base_bounds = self._apply_transform_to_bounds(transform, base_bounds)
-            return base_bounds
-        elif hasattr(prior, 'base_prior') and isinstance(prior.base_prior, (list, tuple)):
-            bound_dict = {}
-            for child in prior.base_prior:
-                bound_dict.update(self._get_bounds(child))
-            return bound_dict
-        else:
-            low, high = self._bounds_for_leaf(prior)
-            return {name: (low, high) for name in prior.parameter_names}
-
-
-
-    def _apply_transform_to_bounds(self, transform, bounds_dict):
-        input_names, output_names = transform.name_mapping
-        new_bounds = {}
-        for in_name, out_name in zip(input_names, output_names):
-            if in_name not in bounds_dict:
-                new_bounds[out_name] = (-jnp.inf, jnp.inf)
-                continue
-            low_in, high_in = bounds_dict[in_name]
-
-            # Handle each known transform type
-            if isinstance(transform, ScaleTransform):
-                scale = transform.scale
-                low_out = low_in * scale
-                high_out = high_in * scale
-
-            elif isinstance(transform, OffsetTransform):
-                offset = transform.offset
-                low_out = low_in + offset
-                high_out = high_in + offset
-
-            elif isinstance(transform, CosineTransform):
-                # CosineTransform maps theta -> cos(theta). Here we are applying it in forward direction,
-                # so input is theta, output is cos(theta). Input bounds should be within [0, pi].
-                low_out = jnp.cos(high_in)   # since cosine is decreasing on [0,pi]
-                high_out = jnp.cos(low_in)
-
-            elif isinstance(transform, PowerLawTransform):
-                # PowerLawTransform maps u in [0,1] to x in [xmin, xmax].
-                # We can compute directly without calling forward.
-                alpha = transform.alpha
-                xmin = transform.xmin
-                xmax = transform.xmax
-                def _power_law(u):
-                    return (xmin**(1+alpha) + u*(xmax**(1+alpha) - xmin**(1+alpha)))**(1/(1+alpha))
-                low_out = _power_law(low_in)
-                high_out = _power_law(high_in)
-
-            elif isinstance(transform, RayleighTransform):
-                # RayleighTransform maps u in [0,1] to x in [0, inf).
-                sigma = transform.sigma
-                def _rayleigh(u):
-                    return sigma * jnp.sqrt(-2 * jnp.log(1 - u))
-                low_out = _rayleigh(low_in)
-                high_out = _rayleigh(high_in)
-
-            elif hasattr(transform, 'base_transform'):
-                # Likely a reversed transform (from reverse_bijective_transform)
-                base = transform.base_transform
-                if isinstance(base, CosineTransform):
-                    # Reversed cosine: forward maps cos(theta) -> theta. Input is cos, output is theta.
-                    low_out = jnp.arccos(high_in)
-                    high_out = jnp.arccos(low_in)
-                else:
-                    # Unsupported reversed transform
-                    low_out, high_out = -jnp.inf, jnp.inf
-            else:
-                # Unknown transform type – treat as unbounded
-                low_out, high_out = -jnp.inf, jnp.inf
-
-            # Ensure correct order (transform may be decreasing)
-            low_out, high_out = jnp.minimum(low_out, high_out), jnp.maximum(low_out, high_out)
-            new_bounds[out_name] = (float(low_out), float(high_out))
-        return new_bounds
-    
-
-
-    @staticmethod
-    def _bounds_for_leaf(p):
-        """Return (low, high) for a leaf distribution."""
-        if hasattr(p, "xmin") and hasattr(p, "xmax"):
-            return float(p.xmin), float(p.xmax)
-
-        # Distribution‑specific defaults
-        if isinstance(p, UniformDistribution):
-            return 0.0, 1.0
-        if isinstance(p, (StandardNormalDistribution, GaussianPrior, LogisticDistribution)):
-            return -jnp.inf, jnp.inf
-        if isinstance(p, PowerLawPrior):
-            return float(p.xmin), float(p.xmax)
-
-        # Fallback: unbounded
-        return -jnp.inf, jnp.inf
-
-
-
-
-
-
-
-
-
-###################################################
-# OUTDIR
-###################################################
+##############################################################################################
+# 5. OUTDIR AND PLOTS
+##############################################################################################
 def next_run_dir(root: str, prefix: str = "run") -> str:
     os.makedirs(root, exist_ok=True)
     k = 0
@@ -705,13 +441,13 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
     Two-page PDF with one plot per row (full-width subplots):
 
     Page 1:
-        1) beta(t)
-        2) ESS(t)
-        3) logZ(t)
+        1. beta(t)
+        2. ESS(t)
+        3. logZ(t)
 
     Page 2:
-        4) acceptance(t)
-        5) sigma(t)  (reconstructed from efficiency, beta>0 only)
+        4. acceptance(t)
+        5. sigma(t)  (reconstructed from efficiency, beta>0 only)
     """
     import os
     from matplotlib.backends.backend_pdf import PdfPages
@@ -744,9 +480,8 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
     save_path = os.path.join(outdir, filename)
 
     with PdfPages(save_path) as pdf:
-        # ==========================
         # PAGE 1: beta, ESS, logZ
-        # ==========================
+        # ------------------------------
         fig, axes = plt.subplots(
             nrows=3,
             ncols=1,
@@ -756,7 +491,7 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
         )
         fig.suptitle("SMC core diagnostics – page 1/2", fontsize=14)
 
-        # 1) beta(t)
+        # 1. beta(t)
         ax = axes[0]
         ax.plot(it, beta, marker="o", linewidth=1)
         ax.set_title("beta(t)")
@@ -765,7 +500,7 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
         ax.set_ylim(min(-0.02, beta.min()), max(1.02, beta.max()))
         ax.grid(True, alpha=0.3)
 
-        # 2) ESS(t) and ESS/N_active
+        # 2. ESS(t) and ESS/N_active
         ax = axes[1]
         ax.plot(it, ess, marker="o", linewidth=1, label="ESS")
         ax.plot(it, ess_ratio * n_active,
@@ -778,7 +513,7 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=9)
 
-        # 3) logZ(t)
+        # 3. logZ(t)
         ax = axes[2]
         ax.plot(it, logz, marker="o", linewidth=1)
         ax.set_title("logZ(t)")
@@ -789,9 +524,8 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
         pdf.savefig(fig, bbox_inches="tight")
         plt.close(fig)
 
-        # ==========================
         # PAGE 2: accept, sigma
-        # ==========================
+        # ------------------------------
         fig, axes = plt.subplots(
             nrows=2,
             ncols=1,
@@ -830,16 +564,16 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
 
 
 
-
-
-
+##############################################################################################
+# 6. EXPERIMENT RUNNER
+##############################################################################################
 def run_event_and_save_posteriors(
     *,
     event_name: str,
-    prior_u,                     # now expects our TransformedPrior
-    loglike_x,                   # now expects gw_loglike_unconstrained
+    prior_u,                     
+    loglike_x,                   
     D: int,
-    names: list[str],            # should be final_names
+    names: list[str],            
     ranges,
     periodic_idx=None,
     args,
@@ -898,12 +632,6 @@ def run_event_and_save_posteriors(
 
     t0 = time.time()
 
-    # ----------------------------------------------------------
-    # Use the provided prior_u directly (already transformed)
-    # ----------------------------------------------------------
-    # <-- REMOVED JimPriorAdapter line
-
-    # The likelihood is already passed as loglike_x (gw_loglike_unconstrained)
 
     sampler = SamplerJAX(
         prior_u,          # <-- use the transformed prior
@@ -934,11 +662,11 @@ def run_event_and_save_posteriors(
     post = _block_tree(post)
     print(f"[{event_name}] posterior_jax: {(time.time()-t1)/60:.2f} min")
 
-    # The samples are in the transformed (unconstrained) space
+    # samples are in the transformed (unconstrained) space
     theta_transformed = np.asarray(post.samples_resampled[:n_keep])
 
-    # Convert to physical space for saving and comparison
-    theta_physical = np.asarray(unconstrained_to_physical(theta_transformed))  # <-- NEW
+    # convert to physical space for saving and comparison
+    theta_physical = np.asarray(unconstrained_to_physical(theta_transformed))  
 
     logZ = float(np.asarray(out.logz))
     logZerr = float(np.asarray(out.logz_err))
@@ -951,7 +679,7 @@ def run_event_and_save_posteriors(
     # save
     outdir = next_run_dir(os.path.join(out_root, event_name))
 
-    # create diagnostics PDF (beta, ESS, logZ, acceptance, sigma)
+    # create diagnostics PDF
     plot_diagnostics(out, n_active=n_active, n_dims=D, outdir=outdir)
 
     # ------------------------------------------------------------------
@@ -980,11 +708,11 @@ def run_event_and_save_posteriors(
 
     print(f"[{event_name}] wrote posterior HDF5: {h5_path}")
 
-    # --- 1) TRUE posterior HDF5 path ---
+    #1. TRUE posterior HDF5 path
 
     TRUE_FILE = "/home/obevza/jaxpsmc/GW_examples/GW150914_095045_data0_1126259462-391_analysis_H1L1_result.hdf5"
 
-    # Mapping from your parameter names to true posterior dataset names
+    # match my parameters with true posteriors
     name_map = {
         "M_c":      "chirp_mass",
         "q":        "mass_ratio",
@@ -1016,25 +744,16 @@ def run_event_and_save_posteriors(
                 cols.append(arr)
         return np.column_stack(cols)
 
-    # Load true samples and convert our samples
+    # load true samples and convert our samples
     samples_true = load_true_samples(TRUE_FILE, list(prior.parameter_names))
     samples_ours = theta_physical
 
-    # DEBUG: print parameter ranges
+    # print parameter ranges
     for i, name in enumerate(prior.parameter_names):
         col_true = samples_true[:, i]
         col_ours = samples_ours[:, i]
         print(f"True {name}: min={col_true.min():.4f}, max={col_true.max():.4f}, unique={np.unique(col_true).size}")
         print(f"Ours {name}: min={col_ours.min():.4f}, max={col_ours.max():.4f}, unique={np.unique(col_ours).size}")
-
-
-
-
-
-
-
-
-
 
 
     labels_latex = [
@@ -1105,21 +824,15 @@ def run_event_and_save_posteriors(
 
 
 
-##################################################################################
-# RUN 
-##################################################################################
 
-
-
-
+##############################################################################################
+# 7. RUN
+##############################################################################################
 
 import sys
 import argparse
 
-
-# prior is your original CombinePrior (from prior_jim.py)
-prior_u = prior                      # raw GW prior, unchanged
-# prior_smc = JimPriorAdapter(prior_u) # thin wrapper for SMC
+prior_u = prior                      
 
 bounds = np.asarray(prior_smc.bounds())       # (D, 2)
 ranges = [tuple(map(float, b)) for b in bounds]
@@ -1159,18 +872,25 @@ sys.argv = [
 args = parser.parse_args()
 
 
-
-
 outdir, theta = run_event_and_save_posteriors(
     event_name="GW150914",
-    prior_u=prior_smc,                     # use the transformed prior
-    loglike_x=gw_loglike_unconstrained,    # use the new likelihood
+    prior_u=prior_smc,                     # use transformed prior
+    loglike_x=gw_loglike_unconstrained,    # use likelihood
     D=D_transformed,                       # dimension in transformed space
     names=final_names,                     # transformed parameter names
-    ranges=None,                           # will be computed inside (or set to None)
+    ranges=None,                           # will be computed inside or set to None
     periodic_idx=None,
     args=args,
 )
+
+
+
+
+
+
+
+
+
 
 
 
