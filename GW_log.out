@@ -1,0 +1,44 @@
+ Package location: /gpfs/home5/obevza/jim-gw-jax-team/src/jimgw/__init__.py
+x64 enabled? True
+Physical parameters (15): ('M_c', 'q', 's1_mag', 's1_theta', 's1_phi', 's2_mag', 's2_theta', 's2_phi', 'iota', 'd_L', 't_c', 'phase_c', 'psi', 'ra', 'dec')
+Transformed parameters (15): ('d_hat', 't_det', 'M_c_unbounded', 'q_unbounded', 's1_phi_unbounded', 's2_phi_unbounded', 'iota_unbounded', 's1_theta_unbounded', 's2_theta_unbounded', 's1_mag_unbounded', 's2_mag_unbounded', 'phase_det_unbounded', 'psi_unbounded', 'zenith_unbounded', 'azimuth_unbounded')
+[GW150914] sampler.run: 18.61 min
+[GW150914] posterior_jax: 0.08 min
+Sampling complete!
+n_prior (adjusted) = 175000 (input was 175000 )
+samples.shape = (10000, 15)
+logZ = 247.13416131864705 logZerr = nan
+Saved core diagnostics PDF to /home/obevza/jaxpsmc/GW_examples/GW150914/run_005/diagnostics_core_long.pdf
+[GW150914] wrote posterior HDF5: /home/obevza/jaxpsmc/GW_examples/GW150914/run_005/posterior.hdf5
+True M_c: min=27.4475, max=34.5080, unique=4952
+Ours M_c: min=27.8156, max=35.0467, unique=7547
+True q: min=0.4616, max=0.9999, unique=4952
+Ours q: min=0.4884, max=0.9920, unique=7547
+True s1_mag: min=0.0002, max=0.9890, unique=5002
+Ours s1_mag: min=0.0002, max=0.9930, unique=7547
+True s1_theta: min=0.0896, max=3.1161, unique=4975
+Ours s1_theta: min=0.0716, max=3.0090, unique=7547
+True s1_phi: min=0.0010, max=6.2788, unique=5003
+Ours s1_phi: min=0.0037, max=6.2694, unique=7547
+True s2_mag: min=0.0004, max=0.9897, unique=5000
+Ours s2_mag: min=0.0006, max=0.9903, unique=7547
+True s2_theta: min=0.0255, max=3.1036, unique=4972
+Ours s2_theta: min=0.1707, max=2.9683, unique=7547
+True s2_phi: min=0.0001, max=6.2822, unique=5001
+Ours s2_phi: min=0.0119, max=6.2818, unique=7547
+True iota: min=0.1074, max=3.1324, unique=4962
+Ours iota: min=0.0727, max=3.1227, unique=7547
+True d_L: min=199.8419, max=670.8826, unique=4965
+Ours d_L: min=118.3092, max=713.6040, unique=7547
+True t_c: min=0.0115, max=0.0292, unique=4642
+Ours t_c: min=0.0109, max=0.0381, unique=7547
+True phase_c: min=0.0023, max=6.2811, unique=4991
+Ours phase_c: min=0.0033, max=6.2821, unique=7547
+True psi: min=0.0004, max=3.1400, unique=4998
+Ours psi: min=0.0095, max=3.1416, unique=7547
+True ra: min=0.8227, max=2.7131, unique=4952
+Ours ra: min=0.8156, max=2.7401, unique=7547
+True dec: min=-1.3144, max=-0.7074, unique=4952
+Ours dec: min=-1.3108, max=0.0735, unique=7547
+Saved overlay corner: /home/obevza/jaxpsmc/GW_examples/GW150914/run_005/corner_true_vs_mine.png
+[GW150914] saved 10000 samples to: /home/obevza/jaxpsmc/GW_examples/GW150914/run_005
