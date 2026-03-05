@@ -774,7 +774,7 @@ def run_event_and_save_posteriors(
         r"$\delta$",
     ]
 
-    fig = plt.figure(figsize=(16, 16))
+    fig = plt.figure(figsize=(22, 22))
 
     fig = corner.corner(
         samples_true,
@@ -801,8 +801,8 @@ def run_event_and_save_posteriors(
     )
 
     handles = [
-        plt.Line2D([], [], color="blue", label="sampler"),
-        plt.Line2D([], [], color="red", label="True Normal"),
+        plt.Line2D([], [], color="blue", label="Sampler"),
+        plt.Line2D([], [], color="red", label="Jim"),
     ]
     fig.legend(handles=handles, loc="upper right")
 
