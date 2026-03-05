@@ -1,4 +1,3 @@
-
 ##################################################################################
 # 1. PACKAGES
 ##################################################################################
@@ -354,6 +353,130 @@ likelihood = BaseTransientLikelihoodFD(
 
 
 
+
+
+
+
+# =============================================================================
+# Build transformed prior for SMC that samples in Jim's unconstrained space
+# =============================================================================
+
+# 1. Compute final parameter names after all sample_transforms
+current_names = list(prior.parameter_names)
+for t in sample_transforms:
+    current_names = t.propagate_name(current_names)
+final_names = current_names
+D_transformed = len(final_names)
+print(f"Physical parameters ({len(prior.parameter_names)}): {prior.parameter_names}")
+print(f"Transformed parameters ({D_transformed}): {final_names}")
+
+# 2. Helper functions to convert between dict and array
+def dict_to_array(d, names):
+    return jnp.array([d[name] for name in names])
+
+def array_to_dict(x, names):
+    return {name: x[i] for i, name in enumerate(names)}
+
+# 3. Sample from the transformed prior (physical -> forward transforms)
+def sample_transformed_prior(key, n):
+    phys_dict = prior.sample(key, n)                     # dict of physical samples, each value shape (n,)
+    # Apply forward transforms sequentially
+    current_dict = phys_dict
+    for t in sample_transforms:
+        current_dict = jax.vmap(t.forward)(current_dict) # vmap over batch
+    # Convert to array in final_names order
+    return jnp.stack([current_dict[name] for name in final_names], axis=1)
+
+# 4. Log‑probability in transformed space (physical log‑prob + log|J|)
+def logpdf_transformed(x):
+    """
+    x : array (D_transformed,) or (n, D_transformed)
+    returns log probability of x in the transformed space.
+    """
+    def _logpdf_one(xi):
+        d = array_to_dict(xi, final_names)
+        # Inverse transforms (reverse order) accumulate log Jacobian
+        logjac = 0.0
+        for t in reversed(sample_transforms):
+            d, ld = t.inverse(d)
+            logjac += ld
+        phys_logprob = prior.log_prob(d)
+        return phys_logprob + logjac
+
+    if x.ndim == 1:
+        return _logpdf_one(x)
+    else:
+        return jax.vmap(_logpdf_one)(x)
+
+# 5. Likelihood for unconstrained samples
+def gw_loglike_unconstrained(x):
+    """
+    x : array (D_transformed,) or (n, D_transformed)
+    returns log likelihood.
+    """
+    def _like_one(xi):
+        d = array_to_dict(xi, final_names)
+        # Inverse transforms to get physical parameters
+        for t in reversed(sample_transforms):
+            d, _ = t.inverse(d)          # ignore logjac
+        # Apply likelihood transforms (original list, already instances)
+        for t in likelihood_transforms:
+            d = t.forward(d)
+        return likelihood.evaluate(d, {})
+
+    if x.ndim == 1:
+        return _like_one(x)
+    else:
+        return jax.vmap(_like_one)(x)
+
+# 6. Convert unconstrained samples back to physical space (for posterior comparison)
+def unconstrained_to_physical(x):
+    """
+    x : array (n, D_transformed) or (D_transformed,)
+    returns physical samples in same order as prior.parameter_names.
+    """
+    def _to_phys_one(xi):
+        d = array_to_dict(xi, final_names)
+        for t in reversed(sample_transforms):
+            d, _ = t.inverse(d)
+        # Return array in original physical order
+        return jnp.array([d[name] for name in prior.parameter_names])
+
+    if x.ndim == 1:
+        return _to_phys_one(x)
+    else:
+        return jax.vmap(_to_phys_one)(x)
+
+# 7. Create a prior object that matches the SMC sampler's expected interface
+class TransformedPrior:
+    def __init__(self, sample_fn, logpdf_fn, dim):
+        self.sample = sample_fn
+        self.logpdf = logpdf_fn
+        self.dim = dim
+        self.params = jnp.zeros((dim, 2))   # dummy, not used
+
+    def bounds(self):
+        # All parameters are unbounded after the transforms
+        return jnp.array([[-jnp.inf, jnp.inf]] * self.dim)
+
+    # Add this method:-----------------------------------------------------------------------------------------------------------
+    def logpdf1(self, x):
+        """
+        Log probability for a single point (D,). Returns a scalar.
+        """
+        return self.logpdf(x)
+    # ---------------------------------------------------------------------------------------------------------------------------
+
+prior_smc = TransformedPrior(
+    sample_fn=lambda key, n: sample_transformed_prior(key, n),
+    logpdf_fn=logpdf_transformed,
+    dim=D_transformed
+)
+
+
+
+
+
 # Import the necessary transform classes for type checking
 from GW_prior import (
     ScaleTransform,
@@ -374,12 +497,6 @@ import jax.numpy as jnp
 import equinox as eqx
 from typing import Dict, Iterable, Tuple
 import numpy as np
-
-
-
-
-
-
 
 
 
@@ -561,16 +678,6 @@ class JimPriorAdapter(eqx.Module):
 
 
 
-
-
-
-
-
-
-
-
-
-
 ###################################################
 # OUTDIR
 ###################################################
@@ -726,45 +833,23 @@ def plot_diagnostics(out, n_active, n_dims, outdir,
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-###################################################
-# RUNNER
-###################################################
 def run_event_and_save_posteriors(
     *,
     event_name: str,
-    prior_u,
-    loglike_x,
+    prior_u,                     # now expects our TransformedPrior
+    loglike_x,                   # now expects gw_loglike_unconstrained
     D: int,
-    names: list[str],
+    names: list[str],            # should be final_names
     ranges,
     periodic_idx=None,
     args,
 ):
-    
     
     # read sampler params 
     n_effective = int(args.n_effective)
     n_active    = int(args.n_active)
     n_prior_in  = int(args.n_prior)
 
-    # n_prior = multiple of n_active for this sampler
     n_prior = int(np.ceil(n_prior_in / n_active) * n_active)
 
     n_total     = int(args.n_total)
@@ -811,37 +896,18 @@ def run_event_and_save_posteriors(
         blob_dim=0,
     )
 
-
-
-    # run sampler
     t0 = time.time()
 
-
     # ----------------------------------------------------------
-    # Build SMC prior from the ORIGINAL Jim prior (prior_u)
+    # Use the provided prior_u directly (already transformed)
     # ----------------------------------------------------------
-    prior_smc = JimPriorAdapter(prior_u)   # adapter around raw CombinePrior
+    # <-- REMOVED JimPriorAdapter line
 
-    def gw_loglike_single(x: jax.Array) -> jax.Array:
-        # x: shape (D,)
-        x = jnp.atleast_1d(x)
-        assert x.ndim == 1 and x.shape[0] == D
-
-        # 1) vector -> dict in PRIOR parameter space (M_c, q, s1_mag, ...)
-        params = {name: x[i] for i, name in enumerate(names)}
-
-        # 2) apply the *original* likelihood transforms to get eta, s1_x, ...
-        for t in likelihood_transforms:
-            params = t.forward(params)
-
-        # 3) call the unchanged GW likelihood
-        return loglike_x.evaluate(params, {})
-
-    likelihood = gw_loglike_single
+    # The likelihood is already passed as loglike_x (gw_loglike_unconstrained)
 
     sampler = SamplerJAX(
-        prior_smc,
-        likelihood,
+        prior_u,          # <-- use the transformed prior
+        loglike_x,
         cfg,
         flow=IdentityFlowJAX(D),
     )
@@ -868,17 +934,18 @@ def run_event_and_save_posteriors(
     post = _block_tree(post)
     print(f"[{event_name}] posterior_jax: {(time.time()-t1)/60:.2f} min")
 
+    # The samples are in the transformed (unconstrained) space
+    theta_transformed = np.asarray(post.samples_resampled[:n_keep])
 
-
-    # 
-    theta = np.asarray(post.samples_resampled[:n_keep])  
+    # Convert to physical space for saving and comparison
+    theta_physical = np.asarray(unconstrained_to_physical(theta_transformed))  # <-- NEW
 
     logZ = float(np.asarray(out.logz))
     logZerr = float(np.asarray(out.logz_err))
 
     print("Sampling complete!")
     print("n_prior (adjusted) =", n_prior, "(input was", n_prior_in, ")")
-    print("samples.shape =", theta.shape)
+    print("samples.shape =", theta_physical.shape)
     print("logZ =", logZ, "logZerr =", logZerr)
 
     # save
@@ -888,30 +955,24 @@ def run_event_and_save_posteriors(
     plot_diagnostics(out, n_active=n_active, n_dims=D, outdir=outdir)
 
     # ------------------------------------------------------------------
-    # SAVE *YOUR* POSTERIOR IN ONE HDF5 FILE (like GW_15params.py)
+    # SAVE POSTERIOR IN HDF5 FILE (physical parameters)
     # ------------------------------------------------------------------
     h5_path = os.path.join(outdir, "posterior.hdf5")
 
     meta = {
         "event": event_name,
-        "parameter_names": names,
-        "n_samples": int(theta.shape[0]),
+        "parameter_names": list(prior.parameter_names),   # physical names
+        "n_samples": int(theta_physical.shape[0]),
         "logz": float(logZ),
         "logz_err": float(logZerr),
         "seed": int(seed),
-        "note": "Posterior draws from sampler",
+        "note": "Posterior draws from sampler (physical space)",
     }
 
     with h5py.File(h5_path, "w") as f_h5:
-        # samples: shape (n_samples, D)
-        f_h5.create_dataset("samples", data=theta)
-
-        # parameter names as fixed-length ASCII strings
-        f_h5.create_dataset("names", data=np.asarray(names, dtype="S"))
-
-        # metadata as HDF5 attributes
+        f_h5.create_dataset("samples", data=theta_physical)
+        f_h5.create_dataset("names", data=np.asarray(list(prior.parameter_names), dtype="S"))
         for k, v in meta.items():
-            # HDF5 attrs can't store Python lists nicely -> store names list as a single string
             if k == "parameter_names":
                 f_h5.attrs[k] = ",".join(v)
             else:
@@ -919,17 +980,11 @@ def run_event_and_save_posteriors(
 
     print(f"[{event_name}] wrote posterior HDF5: {h5_path}")
 
+    # --- 1) TRUE posterior HDF5 path ---
 
-
-
-
-
-
-
-    # --- 1) TRUE posterior HDF5 path (you said it's the same) ---
     TRUE_FILE = "/home/obevza/jaxpsmc/GW_examples/GW150914_095045_data0_1126259462-391_analysis_H1L1_result.hdf5"
 
-    # --- 2) mapping from YOUR parameter names -> TRUE posterior dataset names ---
+    # Mapping from your parameter names to true posterior dataset names
     name_map = {
         "M_c":      "chirp_mass",
         "q":        "mass_ratio",
@@ -947,31 +1002,41 @@ def run_event_and_save_posteriors(
         "ra":       "ra",
         "dec":      "dec",
     }
-
-    # IMPORTANT: in the true file, geocent_time is absolute GPS.
-    # In your sampler, t_c is usually stored as an offset around gps_ref.
-    gps_ref = 1126259462.4  # GW150914 trigger time used in your scripts
+    gps_ref = 1126259462.4
 
     def load_true_samples(true_file: str, names: list[str]) -> np.ndarray:
         with h5py.File(true_file, "r") as f_true:
             post_true = f_true["posterior"]
             cols = []
             for nm in names:
-                true_nm = name_map[nm]  # will KeyError if nm not in map (good: forces correctness)
+                true_nm = name_map[nm]
                 arr = post_true[true_nm][:]
-
-                # Convert absolute geocent_time -> offset t_c (seconds)
                 if nm == "t_c":
                     arr = arr - gps_ref
-
                 cols.append(arr)
-
         return np.column_stack(cols)
 
-    samples_true = load_true_samples(TRUE_FILE, names)
-    samples_ours = np.asarray(theta)
+    # Load true samples and convert our samples
+    samples_true = load_true_samples(TRUE_FILE, list(prior.parameter_names))
+    samples_ours = theta_physical
 
-    # Optional: nicer LaTeX labels (must match your `names` order!)
+    # DEBUG: print parameter ranges
+    for i, name in enumerate(prior.parameter_names):
+        col_true = samples_true[:, i]
+        col_ours = samples_ours[:, i]
+        print(f"True {name}: min={col_true.min():.4f}, max={col_true.max():.4f}, unique={np.unique(col_true).size}")
+        print(f"Ours {name}: min={col_ours.min():.4f}, max={col_ours.max():.4f}, unique={np.unique(col_ours).size}")
+
+
+
+
+
+
+
+
+
+
+
     labels_latex = [
         r"$\mathcal{M}_c\ [M_\odot]$",
         r"$q$",
@@ -990,13 +1055,12 @@ def run_event_and_save_posteriors(
         r"$\delta$",
     ]
 
-    # --- 3) Build overlay: TRUE first (sets axis limits), then OURS on same fig ---
     fig = plt.figure(figsize=(16, 16))
 
     fig = corner.corner(
         samples_true,
         fig=fig,
-        labels=labels_latex if len(labels_latex) == len(names) else names,
+        labels=labels_latex if len(labels_latex) == len(prior.parameter_names) else list(prior.parameter_names),
         show_titles=True,
         plot_datapoints=False,
         plot_density=True,
@@ -1017,7 +1081,6 @@ def run_event_and_save_posteriors(
         hist_kwargs={"density": True},
     )
 
-    # Legend
     handles = [
         plt.Line2D([], [], color="blue", label="sampler"),
         plt.Line2D([], [], color="red", label="True Normal"),
@@ -1033,12 +1096,8 @@ def run_event_and_save_posteriors(
 
     print("Saved overlay corner:", save_path)
 
-
-
-
-    print(f"[{event_name}] saved {theta.shape[0]} samples to: {outdir}")
-    return outdir, theta
-
+    print(f"[{event_name}] saved {theta_physical.shape[0]} samples to: {outdir}")
+    return outdir, theta_physical
 
 
 
@@ -1046,13 +1105,9 @@ def run_event_and_save_posteriors(
 
 
 
-
-
-
-
-
-
-
+##################################################################################
+# RUN 
+##################################################################################
 
 
 
@@ -1064,10 +1119,15 @@ import argparse
 
 # prior is your original CombinePrior (from prior_jim.py)
 prior_u = prior                      # raw GW prior, unchanged
-prior_smc = JimPriorAdapter(prior_u) # thin wrapper for SMC
+# prior_smc = JimPriorAdapter(prior_u) # thin wrapper for SMC
 
 bounds = np.asarray(prior_smc.bounds())       # (D, 2)
 ranges = [tuple(map(float, b)) for b in bounds]
+prior_smc = TransformedPrior(
+    sample_fn=lambda key, n: sample_transformed_prior(key, n),
+    logpdf_fn=logpdf_transformed,
+    dim=D_transformed
+)
 
 
 
@@ -1101,18 +1161,13 @@ args = parser.parse_args()
 
 
 
-
-
-
-
-
 outdir, theta = run_event_and_save_posteriors(
     event_name="GW150914",
-    prior_u=prior_u,                 # raw CombinePrior
-    loglike_x=likelihood,            # original GW likelihood
-    D=len(prior_u.parameter_names),
-    names=list(prior_u.parameter_names),
-    ranges=ranges,
+    prior_u=prior_smc,                     # use the transformed prior
+    loglike_x=gw_loglike_unconstrained,    # use the new likelihood
+    D=D_transformed,                       # dimension in transformed space
+    names=final_names,                     # transformed parameter names
+    ranges=None,                           # will be computed inside (or set to None)
     periodic_idx=None,
     args=args,
 )
