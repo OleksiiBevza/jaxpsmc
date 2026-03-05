@@ -459,6 +459,14 @@ class TransformedPrior:
         # All parameters are unbounded after the transforms
         return jnp.array([[-jnp.inf, jnp.inf]] * self.dim)
 
+    # Add this method:-----------------------------------------------------------------------------------------------------------
+    def logpdf1(self, x):
+        """
+        Log probability for a single point (D,). Returns a scalar.
+        """
+        return self.logpdf(x)
+    # ---------------------------------------------------------------------------------------------------------------------------
+
 prior_smc = TransformedPrior(
     sample_fn=lambda key, n: sample_transformed_prior(key, n),
     logpdf_fn=logpdf_transformed,
@@ -973,9 +981,10 @@ def run_event_and_save_posteriors(
     print(f"[{event_name}] wrote posterior HDF5: {h5_path}")
 
     # --- 1) TRUE posterior HDF5 path ---
+
     TRUE_FILE = "/home/obevza/jaxpsmc/GW_examples/GW150914_095045_data0_1126259462-391_analysis_H1L1_result.hdf5"
 
-    # --- 2) mapping from physical parameter names -> TRUE posterior dataset names ---
+    # Mapping from your parameter names to true posterior dataset names
     name_map = {
         "M_c":      "chirp_mass",
         "q":        "mass_ratio",
@@ -993,7 +1002,6 @@ def run_event_and_save_posteriors(
         "ra":       "ra",
         "dec":      "dec",
     }
-
     gps_ref = 1126259462.4
 
     def load_true_samples(true_file: str, names: list[str]) -> np.ndarray:
@@ -1008,8 +1016,26 @@ def run_event_and_save_posteriors(
                 cols.append(arr)
         return np.column_stack(cols)
 
+    # Load true samples and convert our samples
     samples_true = load_true_samples(TRUE_FILE, list(prior.parameter_names))
-    samples_ours = theta_physical   # <-- use physical samples
+    samples_ours = theta_physical
+
+    # DEBUG: print parameter ranges
+    for i, name in enumerate(prior.parameter_names):
+        col_true = samples_true[:, i]
+        col_ours = samples_ours[:, i]
+        print(f"True {name}: min={col_true.min():.4f}, max={col_true.max():.4f}, unique={np.unique(col_true).size}")
+        print(f"Ours {name}: min={col_ours.min():.4f}, max={col_ours.max():.4f}, unique={np.unique(col_ours).size}")
+
+
+
+
+
+
+
+
+
+
 
     labels_latex = [
         r"$\mathcal{M}_c\ [M_\odot]$",
@@ -1079,9 +1105,9 @@ def run_event_and_save_posteriors(
 
 
 
-
-
-
+##################################################################################
+# RUN 
+##################################################################################
 
 
 
@@ -1093,10 +1119,15 @@ import argparse
 
 # prior is your original CombinePrior (from prior_jim.py)
 prior_u = prior                      # raw GW prior, unchanged
-prior_smc = JimPriorAdapter(prior_u) # thin wrapper for SMC
+# prior_smc = JimPriorAdapter(prior_u) # thin wrapper for SMC
 
 bounds = np.asarray(prior_smc.bounds())       # (D, 2)
 ranges = [tuple(map(float, b)) for b in bounds]
+prior_smc = TransformedPrior(
+    sample_fn=lambda key, n: sample_transformed_prior(key, n),
+    logpdf_fn=logpdf_transformed,
+    dim=D_transformed
+)
 
 
 
@@ -1130,19 +1161,6 @@ args = parser.parse_args()
 
 
 
-
-
-
-
-
-adapter = JimPriorAdapter(prior_u)
-bounds = adapter.bounds()
-for i, name in enumerate(adapter.parameter_names):
-    print(f"{name}: [{bounds[i,0]:.4f}, {bounds[i,1]:.4f}]")
-
-
-
-
 outdir, theta = run_event_and_save_posteriors(
     event_name="GW150914",
     prior_u=prior_smc,                     # use the transformed prior
@@ -1153,3 +1171,6 @@ outdir, theta = run_event_and_save_posteriors(
     periodic_idx=None,
     args=args,
 )
+
+
+
