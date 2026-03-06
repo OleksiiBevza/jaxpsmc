@@ -8,6 +8,6 @@ JAX implementation of a preconditioned Sequential Monte Carlo sampler, inspired 
 
 - [pocoMC: A Python package for accelerated Bayesian inference in astronomy and cosmology](https://arxiv.org/abs/2207.05660)
 
-- []
+- [blackjax](https://github.com/blackjax-devs/blackjax)
 
 The sampler is now using dummy normalizing flow which will be substituted with a real one in the near future. Also changes in the code are expected. 
