@@ -1,4 +1,6 @@
-JAX implementation of a preconditioned Sequential Monte Carlo sampler, inspired by related work on Preconditioned Monte Carlo, persistent sampling, and preconditioned Crank–Nicolson kernels:
+JAX implementation of a preconditioned Sequential Monte Carlo framework for Bayesian inference. It transforms samples from an initial distribution to a target posterior through reweighting, resampling, and mutation steps. To improve sampling efficiency a t-preconditioned Crank-Nicolson MCMC algorithm was used. The framework supports just-in-time compilation, automatic differentiation, and vectorization, making it suitable for computationally expensive inference problems. Numerical experiments, including applications to gravitational-wave inference, show that the sampler efficiently captures multimodal target distributions.
+
+Inspired by related work on Preconditioned Monte Carlo, persistent sampling, and preconditioned Crank–Nicolson kernels:
 
 - [Validating Sequential Monte Carlo for Gravitational-Wave Inference](https://arxiv.org/abs/2506.18977)
 
