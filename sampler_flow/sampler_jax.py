@@ -25,7 +25,7 @@ from tools_jax import *
 
 
 # new flow 
-from flow_jax_adapter import FlowJAXAdapter, init_flow_state
+from flow_jax_adapter import *
 
 
 

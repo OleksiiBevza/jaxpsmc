@@ -15,7 +15,6 @@ logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
 
 # Preconditioned Monte Carlo
 import numpy as np
-import pocomc as pc
 from scipy.stats import uniform
 import numpy as np
 import jax
@@ -216,7 +215,7 @@ class SequentialMCExperimentRunner:
             print("Setting the target function to a standard Gaussian distribution.")
 
             # defining parameters for mcmc sampler 
-            np.random.seed(800)
+            np.random.seed(801)
 
             D = self.params["n_dims"]
             
@@ -994,7 +993,7 @@ sys.argv = [
     "--outdir", "./runs/gaussian_10",
 
     # parameters of the experiments
-    "--n-dims", "5",
+    "--n-dims", "7",
     "--nr-of-samples", "10000",
     "--nr-of-components", "2",
     "--width-mean", "10.0",
@@ -1006,15 +1005,15 @@ sys.argv = [
     "--prior-high", "25.0",
 
     # define number of particles
-    "--n-effective", "1000",
-    "--n-active", "1000",
-    "--n-prior", "10000",
+    "--n-effective", "3000",
+    "--n-active", "3000",
+    "--n-prior", "30000",
 
     # define steps
-    "--n-total", "1000",
+    "--n-total", "10000",
     "--pc-n-steps", "50",
     "--pc-n-max-steps", "50",
-    "--keep-max", "8000",
+    "--keep-max", "30000",
     "--random-state", "0",
 
     # define metrics
