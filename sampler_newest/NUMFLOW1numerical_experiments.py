@@ -218,7 +218,7 @@ class SequentialMCExperimentRunner:
             print("Setting the target function to a standard Gaussian distribution.")
 
             # defining parameters for mcmc sampler 
-            np.random.seed(800)
+            np.random.seed(802)
 
             D = self.params["n_dims"]
             
@@ -1023,7 +1023,7 @@ sys.argv = [
     "--outdir", "./runs/gaussian_10",
 
     # parameters of the experiments
-    "--n-dims", "6",
+    "--n-dims", "8",
     "--nr-of-samples", "10000",
     "--nr-of-components", "2",
     "--width-mean", "10.0",
@@ -1035,14 +1035,14 @@ sys.argv = [
     "--prior-high", "25.0",
 
     # define number of particles
-    "--n-effective", "2500",
-    "--n-active", "2500",
-    "--n-prior", "25000",
+    "--n-effective", "4500",
+    "--n-active", "4500",
+    "--n-prior", "67500",
 
     # define steps
     "--n-total", "10000",
-    "--pc-n-steps", "50",
-    "--pc-n-max-steps", "50",
+    "--pc-n-steps", "150",
+    "--pc-n-max-steps", "300",
     "--keep-max", "30000",
     "--random-state", "0",
 
@@ -1059,7 +1059,7 @@ sys.argv = [
     "--flow-nn-width", "128",
     "--flow-nn-depth", "3",
     "--flow-learning-rate", "0.005",
-    "--flow-max-epochs", "50",
+    "--flow-max-epochs", "100",
     "--flow-batch-size", "256",
     "--flow-train-frequency", "1",
     "--flow-show-progress",
