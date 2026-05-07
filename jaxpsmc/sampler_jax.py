@@ -30,28 +30,46 @@ Array = jax.Array
 @dataclass(frozen=True)
 class IdentityBijectionJAX:
     """
-    Function-like class stores an identity bijection with zero log-determinant.
+    Stores an identity bijection for the sampler.
+
+    A bijection is a reversible transformation.
+    This class represents the simplest possible bijection:
+    it returns the input unchanged.
+
+    The log determinant is always zero.
+    This is correct because the identity transformation does not stretch
+    or shrink volume.
+
+    This class is registered as a JAX pytree.
+    It has no trainable parameters and no array fields.
 
     Parameters:
     -----------
-        None.
+    None:
+        this class has no stored fields.
 
     Returns:
     --------
-        object that matches the flow bijection interface.
+    IdentityBijectionJAX:
+        identity bijection object compatible with the sampler flow interface.
     """
 
     def tree_flatten(self):
         """
-        Function converts the object into JAX pytree parts.
+        Converts the identity bijection into JAX pytree parts.
+
+        Since this object stores no arrays, the children tuple is empty.
+        The auxiliary data is also None.
 
         Parameters:
         -----------
-            None.
+        None:
+            this method uses the current object.
 
         Returns:
         --------
-            empty children tuple and auxiliary data.
+        tuple:
+            empty children tuple and no auxiliary data.
         """
         # This object has no array fields.
         return (), None
@@ -59,31 +77,47 @@ class IdentityBijectionJAX:
     @classmethod
     def tree_unflatten(cls, aux, children):
         """
-        Function rebuilds the object from JAX pytree parts.
+        Rebuilds the identity bijection from pytree parts.
+
+        JAX calls this when reconstructing the object after transformations.
+        The inputs are unused because the identity bijection has no state.
 
         Parameters:
         -----------
-            aux: auxiliary pytree data.
-            children: pytree children.
+        aux:
+            auxiliary pytree data.
+            It is unused here.
+        children:
+            pytree children.
+            It is unused here.
 
         Returns:
         --------
-            rebuilt IdentityBijectionJAX object.
+        IdentityBijectionJAX:
+            rebuilt identity bijection object.
         """
         return cls()
 
     def transform_and_log_det(self, u: Array, condition: Optional[Array] = None) -> Tuple[Array, Array]:
         """
-        Function maps u to itself and returns zero log-determinant.
+        Applies the forward identity transformation.
+
+        The input is returned unchanged.
+        The log determinant is zero for every input row.
+        The condition argument is accepted only to match the flow interface.
 
         Parameters:
         -----------
-            u: input array in latent space.
-            condition: optional conditioning input.
+        u:
+            input array in latent space, shape (..., D).
+        condition:
+            optional conditioning input.
+            It is unused by the identity transformation.
 
         Returns:
         --------
-            unchanged array and zero log-determinant.
+        Tuple[Array, Array]:
+            unchanged input array and zero log determinant, shape (...,).
         """
         # convert input to a JAX array
         u = jnp.asarray(u)
@@ -91,16 +125,24 @@ class IdentityBijectionJAX:
 
     def inverse_and_log_det(self, theta: Array, condition: Optional[Array] = None) -> Tuple[Array, Array]:
         """
-        Function maps theta to itself and returns zero log-determinant.
+        Applies the inverse identity transformation.
+
+        The inverse of the identity map is also the identity map.
+        The input is returned unchanged.
+        The log determinant is zero for every input row.
 
         Parameters:
         -----------
-            theta: input array in transformed space.
-            condition: optional conditioning input.
+        theta:
+            input array in transformed space, shape (..., D).
+        condition:
+            optional conditioning input.
+            It is unused by the identity transformation.
 
         Returns:
         --------
-            unchanged array and zero log-determinant.
+        Tuple[Array, Array]:
+            unchanged input array and zero log determinant, shape (...,).
         """
         # convert input to a JAX array
         theta = jnp.asarray(theta)
@@ -111,30 +153,44 @@ class IdentityBijectionJAX:
 @dataclass(frozen=True)
 class IdentityFlowJAX:
     """
-    Function-like class stores a simple flow object with an identity bijection.
+    Stores a flow object that uses the identity bijection.
+
+    A flow normally maps between a simple latent space and a transformed space.
+    This identity flow performs no transformation.
+    It is useful as a safe default when no learned flow is supplied.
+
+    The object stores only the dimension of the space.
+    It has no trainable parameters.
 
     Parameters:
     -----------
-        dim: dimension of the latent space.
+    dim:
+        dimension of the latent space.
 
     Returns:
     --------
-        object that behaves like a flow for the sampler.
+    IdentityFlowJAX:
+        flow object with an identity bijection.
     """
 
     dim: int
 
     def tree_flatten(self):
         """
-        Function converts the object into JAX pytree parts.
+        Converts the identity flow into JAX pytree parts.
+
+        The flow has no array children.
+        The dimension is stored as auxiliary data because it is static.
 
         Parameters:
         -----------
-            None.
+        None:
+            this method uses the current object.
 
         Returns:
         --------
-            empty children tuple and auxiliary data with the dimension.
+        tuple:
+            empty children tuple and auxiliary data containing dim.
         """
         # store dimension as auxiliary data
         return (), (self.dim,)
@@ -142,16 +198,23 @@ class IdentityFlowJAX:
     @classmethod
     def tree_unflatten(cls, aux, children):
         """
-        Function rebuilds the object from JAX pytree parts.
+        Rebuilds the identity flow from pytree parts.
+
+        JAX uses this method after pytree transformations.
+        The dimension is recovered from auxiliary data.
 
         Parameters:
         -----------
-            aux: auxiliary pytree data that stores the dimension.
-            children: pytree children.
+        aux:
+            auxiliary data containing the dimension.
+        children:
+            pytree children.
+            It is unused because this flow has no array fields.
 
         Returns:
         --------
-            rebuilt IdentityFlowJAX object.
+        IdentityFlowJAX:
+            rebuilt identity flow object.
         """
         # define stored dimension and rebuild object
         (dim,) = aux
@@ -160,48 +223,64 @@ class IdentityFlowJAX:
     @property
     def bijection(self) -> IdentityBijectionJAX:
         """
-        Function returns the identity bijection used by the flow.
+        Returns the identity bijection used by this flow.
 
         Parameters:
         -----------
-            None.
+        None:
+            this property uses the current flow object.
 
         Returns:
         --------
-            IdentityBijectionJAX object.
+        IdentityBijectionJAX:
+            identity bijection object.
         """
         # return a fresh identity bijection
         return IdentityBijectionJAX()
 
     def fit(self, *args, **kwargs):
         """
-        Function keeps the same flow object when fit is called.
+        Returns the same identity flow without fitting anything.
+
+        A learned flow would update its parameters here.
+        This identity flow has no parameters, so calling fit changes nothing.
 
         Parameters:
         -----------
-            *args: unused positional inputs.
-            **kwargs: unused keyword inputs.
+        *args:
+            unused positional arguments.
+        **kwargs:
+            unused keyword arguments.
 
         Returns:
         --------
-            current IdentityFlowJAX object.
+        IdentityFlowJAX:
+            unchanged identity flow object.
         """
         # flow has no trainable state, so return itself
         return self
 
     def sample(self, key: Array, n: int, condition: Optional[Array] = None) -> Array:
         """
-        Function draws standard normal samples from the identity flow.
+        Draws standard normal samples in the latent space.
+
+        Since the flow is identity, samples are drawn directly
+        from a standard normal distribution with dimension dim.
 
         Parameters:
         -----------
-            key: JAX random key.
-            n: number of samples to draw.
-            condition: optional conditioning input.
+        key:
+            JAX random key.
+        n:
+            number of samples to draw.
+        condition:
+            optional conditioning input.
+            It is unused by the identity flow.
 
         Returns:
         --------
-            array with shape (n, dim).
+        Array:
+            standard normal samples, shape (n, dim).
         """
         # draw standard normal samples in the latent space
         return jax.random.normal(key, (n, self.dim))
@@ -218,15 +297,27 @@ class IdentityFlowJAX:
 
 def _metric_code(metric: str) -> jnp.int32:
     """
-    Function converts the metric name into its integer code.
+    Converts a metric name into an integer code.
+
+    The sampler uses integer codes inside JAX control flow.
+    This helper keeps string handling outside the jitted code.
 
     Parameters:
     -----------
-        metric: metric name, expected to be "ess" or "uss".
+    metric:
+        metric name.
+        Use "ess" for effective sample size.
+        Use "uss" for unique sample size.
 
     Returns:
     --------
+    jnp.int32:
         integer code for the selected metric.
+
+    Raises:
+    -------
+    ValueError:
+        raised when the metric name is not "ess" or "uss".
     """
     # normalize input string before checking it
     metric_l = str(metric).lower()
@@ -241,15 +332,27 @@ def _metric_code(metric: str) -> jnp.int32:
 
 def _resample_code(resample: str) -> jnp.int32:
     """
-    Function converts the resampling name into its integer code.
+    Converts a resampling method name into an integer code.
+
+    The sampler uses integer codes inside JAX control flow.
+    This helper keeps string handling outside the jitted code.
 
     Parameters:
     -----------
-        resample: resampling name, expected to be "mult" or "syst".
+    resample:
+        resampling method name.
+        Use "mult" for multinomial resampling.
+        Use "syst" for systematic resampling.
 
     Returns:
     --------
+    jnp.int32:
         integer code for the selected resampling method.
+
+    Raises:
+    -------
+    ValueError:
+        raised when the resampling name is not "mult" or "syst".
     """
     # normalize input string before checking it
     res_l = str(resample).lower()
@@ -265,35 +368,84 @@ def _resample_code(resample: str) -> jnp.int32:
 @dataclass(frozen=True)
 class SamplerConfigJAX:
     """
-    Function-like class stores sampler settings.
+    Stores all user-facing settings for the JAX sampler.
+
+    This class controls the sampler size, stopping rules,
+    mutation behavior, reweighting behavior, resampling method,
+    scaler options, and delayed-acceptance options.
+
+    The values are mostly static configuration values.
+    Many of them are used as static arguments to jitted functions.
+    Changing these values usually causes JAX to compile a new function.
 
     Parameters:
     -----------
-        n_dim: problem dimension.
-        n_effective: target effective sample size.
-        n_active: number of active particles.
-        n_prior: number of prior samples used in warmup.
-        n_total: total stopping target for the sampler.
-        n_steps: stopping value used by the mutation step.
-        n_max_steps: maximum number of outer sampler steps.
-        proposal_scale: initial proposal scale.
-        keep_max: maximum number of particles kept after trimming.
-        trim_ess: ESS ratio used when trimming weights.
-        bins: number of bins used in trimming.
-        bisect_steps: number of bisection steps in reweighting.
-        preconditioned: whether to use the preconditioned mutation step.
-        dynamic: whether to update the effective target dynamically.
-        metric: metric name, either "ess" or "uss".
-        resample: resampling name, either "mult" or "syst".
-        transform: scaler transform name.
-        periodic: optional periodic coordinate indices.
-        reflective: optional reflective coordinate indices.
-        blob_dim: size of the blob output.
-        enable_flow_evidence: whether to enable flow-based evidence code.
+    n_dim:
+        dimension of the parameter space.
+    n_effective:
+        target effective sample size or unique sample size.
+        The meaning depends on metric.
+    n_active:
+        number of active particles used in each live SMC batch.
+    n_prior:
+        number of prior samples used during warmup.
+        It must be a multiple of n_active.
+    n_total:
+        stopping target used by the outer sampler.
+    n_steps:
+        stopping-rule value used inside the mutation kernel.
+    n_max_steps:
+        maximum number of outer SMC iterations.
+        This value is also passed as the maximum number of pCN iterations
+        in the current implementation.
+    proposal_scale:
+        initial proposal scale.
+        If this is 0.0 or None, the sampler uses 2.38 / sqrt(D).
+    delayed_acceptance:
+        if True, use delayed-acceptance logic in the mutation kernel.
+    da_c_const:
+        conservative delayed-acceptance clipping constant.
+        It must be positive.
+    da_d_const:
+        conservative delayed-acceptance exponent constant.
+        It must be greater than 1.
+    keep_max:
+        maximum number of particles kept after trimming.
+    trim_ess:
+        ESS ratio used when trimming importance weights.
+    bins:
+        number of bins used by trimming.
+    bisect_steps:
+        number of bisection steps used when choosing beta.
+    preconditioned:
+        if True, use the preconditioned pCN mutation kernel.
+        If False, mutation becomes a no-op.
+    dynamic:
+        if True, update the effective-size target dynamically.
+    metric:
+        metric used for beta selection and stopping.
+        Must be "ess" or "uss".
+    resample:
+        resampling method.
+        Must be "mult" or "syst".
+    transform:
+        scaler transform name.
+        Expected values depend on scaler_jax.
+    periodic:
+        optional indices for periodic coordinates.
+    reflective:
+        optional indices for reflective coordinates.
+    blob_dim:
+        size of the extra blob output returned by the likelihood.
+        Use 0 when the likelihood returns no extra values.
+    enable_flow_evidence:
+        flag reserved for flow-based evidence logic.
+        It is stored here but not used in this file.
 
     Returns:
     --------
-        SamplerConfigJAX object.
+    SamplerConfigJAX:
+        validated sampler configuration object.
     """
     # dimensions
     n_dim: int
@@ -308,6 +460,11 @@ class SamplerConfigJAX:
     n_steps: int = 8
     n_max_steps: int = 80
     proposal_scale: float = 0.0     # if 0 then set to 2.38/sqrt(D)
+
+    # delayed acceptance
+    delayed_acceptance: bool = False
+    da_c_const: float = 0.01
+    da_d_const: float = 2.0
 
     # reweight and trim
     keep_max: int = 4096
@@ -332,17 +489,29 @@ class SamplerConfigJAX:
     # evidence option
     enable_flow_evidence: bool = False
 
+
     def __post_init__(self):
         """
-        Function validates the main configuration values.
+        Validates the most important configuration values.
+
+        This method catches basic invalid settings before JAX compilation.
+        It checks positive dimensions and particle counts.
+        It also checks that warmup samples split evenly into batches.
 
         Parameters:
         -----------
-            None.
+        None:
+            this method uses the current configuration object.
 
         Returns:
         --------
-            None.
+        None:
+            the method returns nothing if validation passes.
+
+        Raises:
+        -------
+        ValueError:
+            raised when dimensions or particle counts are invalid.
         """
         # require positive dimensions and particle counts
         if self.n_active <= 0 or self.n_effective <= 0 or self.n_dim <= 0:
@@ -359,17 +528,29 @@ class SamplerConfigJAX:
 @dataclass(frozen=True)
 class RunOutputJAX:
     """
-    Function-like class stores the final sampler outputs as a JAX pytree.
+    Stores the final output of one sampler run.
+
+    The object contains the full particle history.
+    It also stores the final log evidence estimate.
+    The log evidence error is currently a placeholder value.
+
+    This class is registered as a JAX pytree.
+    That allows it to be returned from jitted code.
 
     Parameters:
     -----------
-        state: full particle history.
-        logz: final evidence estimate.
-        logz_err: error estimate for logz.
+    state:
+        full particle history recorded during warmup and SMC.
+    logz:
+        final log evidence estimate.
+    logz_err:
+        error estimate for logz.
+        In this implementation it is set to NaN.
 
     Returns:
     --------
-        RunOutputJAX object.
+    RunOutputJAX:
+        final sampler state and evidence values.
     """
     state: ParticlesState
     logz: Array
@@ -377,15 +558,20 @@ class RunOutputJAX:
 
     def tree_flatten(self):
         """
-        Function converts the object into JAX pytree parts.
+        Converts the output object into JAX pytree children.
+
+        The particle state, log evidence, and error value are array children.
+        No auxiliary data is needed.
 
         Parameters:
         -----------
-            None.
+        None:
+            this method uses the current output object.
 
         Returns:
         --------
-            tuple with stored arrays and auxiliary data.
+        tuple:
+            children tuple and no auxiliary data.
         """
         # ParticlesState is already a pytree, so return it directly
         return (self.state, self.logz, self.logz_err), None
@@ -393,16 +579,22 @@ class RunOutputJAX:
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         """
-        Function rebuilds the object from JAX pytree parts.
+        Rebuilds the output object from JAX pytree children.
+
+        JAX calls this after transformations involving the output object.
 
         Parameters:
         -----------
-            aux_data: auxiliary pytree data.
-            children: tuple with stored fields.
+        aux_data:
+            auxiliary pytree data.
+            It is unused here.
+        children:
+            tuple containing state, logz, and logz_err.
 
         Returns:
         --------
-            rebuilt RunOutputJAX object.
+        RunOutputJAX:
+            rebuilt sampler output object.
         """
         # read stored fields and rebuild object
         state, logz, logz_err = children
@@ -411,18 +603,36 @@ class RunOutputJAX:
 
 class SamplerJAX:
     """
-    Function-like wrapper stores the objects needed to run the sampler.
+    Stores the objects needed to run the JAX SMC sampler.
+
+    This is the user-facing sampler wrapper.
+    It stores the prior, likelihood, configuration, and flow.
+    It also builds the jitted run function during initialization.
+
+    The actual sampling logic is built by make_run_fn.
+    Calling run forwards to that compiled run function.
 
     Parameters:
     -----------
-        prior: prior object.
-        loglike_single_fn: single-point likelihood function.
-        cfg: sampler configuration.
-        flow: optional flow object.
+    prior:
+        prior distribution object.
+    loglike_single_fn:
+        likelihood function for one point.
+        It can return either a scalar log-likelihood or
+        a pair of log-likelihood and blob output.
+    cfg:
+        sampler configuration.
+    flow:
+        optional flow object.
+        If None, an identity flow is used.
+    loglike_approx_single_fn:
+        optional approximate likelihood function.
+        Required when cfg.delayed_acceptance is True.
 
     Returns:
     --------
-        SamplerJAX object.
+    SamplerJAX:
+        sampler wrapper with a compiled run function.
     """
 
     def __init__(
@@ -432,41 +642,77 @@ class SamplerJAX:
         cfg: SamplerConfigJAX,
         *,
         flow: Optional[Any] = None,
+        loglike_approx_single_fn: Optional[Callable[[Array], Any]] = None,
     ):
         """
-        Function initializes the sampler wrapper.
+        Initializes the sampler wrapper.
+
+        The constructor stores the prior, configuration, and flow.
+        It also checks that an approximate likelihood is provided
+        when delayed acceptance is requested.
+
+        Finally, it creates the jitted run function.
+        This means later calls to run can reuse the same compiled logic.
 
         Parameters:
         -----------
-            prior: prior object.
-            loglike_single_fn: single-point likelihood function.
-            cfg: sampler configuration.
-            flow: optional flow object.
+        prior:
+            prior distribution object.
+        loglike_single_fn:
+            likelihood function for one point.
+        cfg:
+            sampler configuration.
+        flow:
+            optional flow object.
+            If None, IdentityFlowJAX is used.
+        loglike_approx_single_fn:
+            optional approximate likelihood function.
+            Required when cfg.delayed_acceptance is True.
 
         Returns:
         --------
-            None.
+        None:
+            the initialized object stores the run function internally.
         """
         # store main objects used by sampler
         self.prior = prior
         self.cfg = cfg
         self.flow = IdentityFlowJAX(cfg.n_dim) if flow is None else flow
+
+        if cfg.delayed_acceptance and loglike_approx_single_fn is None:
+            raise ValueError(
+                "cfg.delayed_acceptance=True requires loglike_approx_single_fn."
+            )
+        
         # build jitted run function once during initialization
-        self._run_fn = make_run_fn(prior=prior, loglike_single_fn=loglike_single_fn, cfg=cfg, flow=self.flow)
+        self._run_fn = make_run_fn(
+            prior=prior, 
+            loglike_single_fn=loglike_single_fn, 
+            loglike_approx_single_fn=loglike_approx_single_fn,
+            cfg=cfg, 
+            flow=self.flow)
 
     def run(self, key: Array, n_total: Optional[int] = None) -> RunOutputJAX:
         """
-        Function runs the sampler.
+        Runs the sampler from a random key.
+
+        This method calls the compiled run function created in __init__.
+        The optional n_total argument can override the stopping target
+        stored in the configuration.
 
         Parameters:
         -----------
-            key: JAX random key.
-            n_total: optional stopping target that overrides the config value.
+        key:
+            JAX random key.
+        n_total:
+            optional stopping target.
+            If None, cfg.n_total is used.
 
         Returns:
         --------
-            RunOutputJAX object.
-        """
+        RunOutputJAX:
+            final particle history and evidence estimate.
+        """ 
         # forward call to stored jitted run function
         return self._run_fn(key, n_total=n_total)
 
@@ -490,21 +736,36 @@ def _replace_inf_rows(
     blobs: Array,
 ) -> Tuple[Array, Array, Array, Array, Array, Array, Array]:
     """
-    Function replaces rows with infinite likelihood values by copying finite rows.
+    Replaces rows with infinite likelihood values.
+
+    The function identifies particles whose likelihood is infinite.
+    These particles are replaced by copies of finite-likelihood particles.
+    This prevents invalid rows from entering the particle history.
+
+    The replacement is random and uses only rows with finite likelihood.
+    If no finite rows exist, the sampling probabilities become invalid.
 
     Parameters:
     -----------
-        key: JAX random key.
-        x: particle values in x-space.
-        u: particle values in u-space.
-        logdetj: scaler log-determinant values.
-        logp: log-prior values.
-        logl: log-likelihood values.
-        blobs: blob outputs.
+    key:
+        JAX random key used to sample replacement rows.
+    x:
+        particle values in x-space, shape (N, D).
+    u:
+        particle values in u-space, shape (N, D).
+    logdetj:
+        scaler log-determinant values, shape (N,).
+    logp:
+        log-prior values, shape (N,).
+    logl:
+        log-likelihood values, shape (N,).
+    blobs:
+        extra likelihood outputs, shape (N, B).
 
     Returns:
     --------
-        updated key and updated particle arrays.
+    Tuple[Array, Array, Array, Array, Array, Array, Array]:
+        updated key and particle arrays after invalid rows are replaced.
     """
     # define number of rows
     n = x.shape[0]
@@ -552,28 +813,50 @@ def _build_step_from_particles(
     accept: Array,
 ) -> ParticlesStep:
     """
-    Function builds one ParticlesStep object from particle arrays and summary values.
+    Builds one particle-history record.
+
+    The sampler stores particles as ParticlesStep objects.
+    This helper takes raw arrays and scalar diagnostics,
+    then packages them into the expected structure.
+
+    The log-weight vector is set to zero here.
+    Final importance weights are computed later from the full history.
 
     Parameters:
     -----------
-        u: particle values in u-space.
-        x: particle values in x-space.
-        logdetj: scaler log-determinant values.
-        logl: log-likelihood values.
-        logp: log-prior values.
-        blobs: blob outputs.
-        iter_idx: current iteration index.
-        beta: current beta value.
-        logz: current logz value.
-        calls: current number of likelihood calls.
-        steps: number of mutation steps.
-        efficiency: efficiency value.
-        ess: effective sample size value.
-        accept: acceptance value.
+    u:
+        particle values in u-space, shape (N, D).
+    x:
+        particle values in x-space, shape (N, D).
+    logdetj:
+        scaler log-determinant values, shape (N,).
+    logl:
+        log-likelihood values, shape (N,).
+    logp:
+        log-prior values, shape (N,).
+    blobs:
+        extra likelihood outputs, shape (N, B).
+    iter_idx:
+        iteration index stored for this step.
+    beta:
+        annealing value for this step.
+    logz:
+        log evidence estimate stored for this step.
+    calls:
+        likelihood call count stored for this step.
+    steps:
+        number of mutation steps stored for this step.
+    efficiency:
+        mutation efficiency diagnostic.
+    ess:
+        effective sample size diagnostic.
+    accept:
+        acceptance diagnostic.
 
     Returns:
     --------
-        ParticlesStep object.
+    ParticlesStep:
+        one particle-history record.
     """
     # store a placeholder log-weight vector for the history record
     logw = jnp.zeros_like(logl)
@@ -601,22 +884,42 @@ def make_run_fn(
     *,
     prior: Prior,
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
+    loglike_approx_single_fn: Optional[Callable[[Array], Any]],
     cfg: SamplerConfigJAX,
     flow: Optional[Any] = None,
 ) -> Callable[[Array], RunOutputJAX]:
     """
-    Function builds the jitted sampler run function.
+    Builds the sampler run function.
+
+    This function closes over the prior, likelihood, configuration,
+    scaler setup, and flow object.
+    It then returns a callable run function.
+
+    The returned function samples prior warmup particles,
+    fits the scaler, records warmup history, runs the outer SMC loop,
+    and finally computes the log evidence estimate.
 
     Parameters:
     -----------
-        prior: prior object.
-        loglike_single_fn: single-point likelihood function.
-        cfg: sampler configuration.
-        flow: optional flow object.
+    prior:
+        prior distribution object.
+    loglike_single_fn:
+        likelihood function for one x-space point.
+        It can return either a scalar or a pair of scalar and blob output.
+    loglike_approx_single_fn:
+        optional approximate likelihood function.
+        Used by delayed acceptance.
+        If None, the full likelihood value is used as a fallback wrapper.
+    cfg:
+        sampler configuration.
+    flow:
+        optional flow object.
+        If None, IdentityFlowJAX is used.
 
     Returns:
     --------
-        function that runs the sampler from a random key.
+    Callable[[Array], RunOutputJAX]:
+        run function that takes a random key and returns sampler output.
     """
     # useidentity flow when no flow object is given
 
@@ -627,15 +930,21 @@ def make_run_fn(
 
     def loglike_wrapped(x: Array) -> Tuple[Array, Array]:
         """
-        Function converts the user likelihood into a fixed output shape.
+        Converts the user likelihood output into a fixed format.
+
+        The sampler expects every likelihood call to return two values:
+        a scalar log-likelihood and a blob vector.
+        This wrapper accepts either that pair or only a scalar likelihood.
 
         Parameters:
         -----------
-            x: one point with shape (D,).
+        x:
+            one input point in x-space, shape (D,).
 
         Returns:
         --------
-            scalar log-likelihood and blob vector with shape (blob_dim,).
+        Tuple[Array, Array]:
+            scalar log-likelihood and blob vector, shape (blob_dim,).
         """
         # call user-provided likelihood function
         out = loglike_single_fn(x)
@@ -653,6 +962,36 @@ def make_run_fn(
             blob_vec = jnp.asarray(blob).reshape((blob_dim,))
         return jnp.asarray(ll), blob_vec
     
+    def loglike_approx_wrapped(x: Array) -> Array:
+        """
+        Converts the approximate likelihood output into a scalar array.
+
+        If no approximate likelihood is provided, the wrapper uses
+        the full likelihood value. This fallback is convenient,
+        but it removes the computational benefit of delayed acceptance.
+
+        Parameters:
+        -----------
+        x:
+            one input point in x-space, shape (D,).
+
+        Returns:
+        --------
+        Array:
+            scalar approximate log-likelihood.
+        """
+        if loglike_approx_single_fn is None:
+            return loglike_wrapped(x)[0]
+
+        out = loglike_approx_single_fn(x)
+        if isinstance(out, tuple) and len(out) == 2:
+            ll, _ = out
+        else:
+            ll = out
+
+        return jnp.asarray(ll)
+
+
     # convert string options into integer codes
     metric_code = _metric_code(cfg.metric)
     res_code = _resample_code(cfg.resample)
@@ -717,25 +1056,53 @@ def make_run_fn(
         blob_dim: int,
     ) -> RunOutputJAX:
         """
-        Function runs the full sampler with fixed static settings.
+        Runs the full jitted sampler.
+
+        The run has four main phases.
+        First, it samples warmup points from the prior.
+        Second, it fits the scaler and records warmup batches.
+        Third, it runs the outer SMC loop with reweighting,
+        geometry fitting, resampling, and mutation.
+        Fourth, it computes the final log evidence estimate.
 
         Parameters:
         -----------
-            key: JAX random key.
-            n_total_dyn: stopping target as a JAX scalar.
-            n_active: number of active particles.
-            n_prior: number of prior samples used in warmup.
-            n_steps: stopping value used by mutation.
-            n_max_steps: maximum number of outer sampler steps.
-            keep_max: maximum number of kept particles after trimming.
-            bins: number of trimming bins.
-            bisect_steps: number of bisection steps.
-            trim_ess: ESS ratio used by trimming.
-            blob_dim: blob output size.
+        key:
+            JAX random key.
+        n_total_dyn:
+            stopping target as a JAX scalar.
+        n_active:
+            number of active particles per batch.
+            This is static for JAX compilation.
+        n_prior:
+            number of prior samples used in warmup.
+            This is static for JAX compilation.
+        n_steps:
+            stopping-rule value passed to the mutation kernel.
+            This is static for JAX compilation.
+        n_max_steps:
+            maximum number of outer SMC iterations.
+            This is static for JAX compilation.
+        keep_max:
+            maximum number of kept particles after trimming.
+            This is static for JAX compilation.
+        bins:
+            number of trimming bins.
+            This is static for JAX compilation.
+        bisect_steps:
+            number of bisection steps for beta selection.
+            This is static for JAX compilation.
+        trim_ess:
+            ESS ratio used by trimming.
+            This is static for JAX compilation.
+        blob_dim:
+            size of likelihood blob output.
+            This is static for JAX compilation.
 
         Returns:
         --------
-            RunOutputJAX object.
+        RunOutputJAX:
+            final particle history and evidence estimate.
         """
         # convert key and choose dtype
         key = jnp.asarray(key)
@@ -772,15 +1139,23 @@ def make_run_fn(
 
         def warm_body(carry, i):
             """
-            Function processes one warmup batch of prior samples.
+            Processes one warmup batch of prior samples.
+
+            The batch is transformed into u-space.
+            The prior and likelihood are evaluated.
+            Infinite-likelihood rows are replaced.
+            The resulting batch is recorded in the particle history.
 
             Parameters:
             -----------
-                carry: current key, particle state, and call count.
-                i: warmup batch index.
+            carry:
+                tuple containing current key, particle state, and call count.
+            i:
+                warmup batch index.
 
             Returns:
             --------
+            tuple:
                 updated carry and no scan output.
             """
             # unpack current warmup state
@@ -869,15 +1244,21 @@ def make_run_fn(
 
         def _u2t_single(ui: Array) -> Tuple[Array, Array]:
             """
-            Function maps one latent vector into theta-space.
+            Maps one current particle from u-space to theta-space.
+
+            This helper is used to build the initial fitted geometry.
+            It applies the flow bijection to one particle.
 
             Parameters:
             -----------
-                ui: one latent vector.
+            ui:
+                one particle in u-space, shape (D,).
 
             Returns:
             --------
-                transformed vector and flow log-determinant.
+            Tuple[Array, Array]:
+                transformed particle in theta-space
+                and flow log determinant.
             """
             # use flow bijection to one latent vector
             theta, logdet = flow_obj.bijection.transform_and_log_det(ui, None)
@@ -899,15 +1280,22 @@ def make_run_fn(
 
         def cond_fn(carry):
             """
-            Function checks whether the outer SMC loop should continue.
+            Checks whether the outer SMC loop should continue.
+
+            The loop continues while the sampler has not met the stopping rule
+            and the maximum number of outer iterations has not been reached.
 
             Parameters:
             -----------
-                carry: current loop state.
+            carry:
+                tuple containing key, state, current particles,
+                geometry, effective-size target, and iteration count.
 
             Returns:
             --------
-                boolean value that is True when another step is needed.
+            Array:
+                Boolean scalar.
+                True means another outer SMC step should run.
             """
             # unpack values needed by the stop rule
             key_c, state_c, cur_c, geom_c, n_eff_c2, it = carry
@@ -925,15 +1313,23 @@ def make_run_fn(
 
         def body_fn(carry):
             """
-            Function runs one outer SMC step.
+            Runs one outer SMC step.
+
+            One outer step performs reweighting, geometry fitting,
+            resampling, mutation, and history recording.
+            The resulting particles become the current particles
+            for the next outer iteration.
 
             Parameters:
             -----------
-                carry: current loop state.
+            carry:
+                tuple containing key, state, current particles,
+                geometry, effective-size target, and iteration count.
 
             Returns:
             --------
-                updated loop state.
+            tuple:
+                updated loop carry for the next SMC iteration.
             """
             # unpack current loop state
             key_c, state_c, cur_c, geom_c, n_eff_c2, it = carry
@@ -954,15 +1350,20 @@ def make_run_fn(
 
             def _u2t_keep(ui: Array) -> Tuple[Array, Array]:
                 """
-                Function maps one kept latent vector into theta-space.
+                Maps one kept particle from u-space to theta-space.
+
+                The transformed particles are used to update
+                the fitted geometry before mutation.
 
                 Parameters:
                 -----------
-                    ui: one latent vector.
+                ui:
+                    one kept particle in u-space, shape (D,).
 
                 Returns:
                 --------
-                    transformed vector and flow log-determinant.
+                Tuple[Array, Array]:
+                    transformed particle and flow log determinant.
                 """
                 # apply flow bijection to one kept particle
                 th, ld = flow_obj.bijection.transform_and_log_det(ui, None)
@@ -1007,6 +1408,7 @@ def make_run_fn(
                 cur_for_mut,
                 use_preconditioned_pcn=use_pcn,
                 loglike_single_fn=loglike_wrapped,
+                loglike_approx_single_fn=loglike_approx_wrapped,
                 logprior_fn=prior.logpdf1,
                 flow=flow_obj,
                 scaler_cfg=scaler_cfg,
@@ -1016,6 +1418,9 @@ def make_run_fn(
                 geom_nu=geom_new.t_nu,
                 n_max=n_max_steps,
                 n_steps=n_steps,
+                use_delayed_acceptance=jnp.asarray(cfg.delayed_acceptance),
+                da_c_const=jnp.asarray(cfg.da_c_const, dtype=dtype),
+                da_d_const=jnp.asarray(cfg.da_d_const, dtype=dtype),
                 condition=None,
             )
 
@@ -1067,16 +1472,24 @@ def make_run_fn(
 
     def run(key: Array, n_total: Optional[int] = None) -> RunOutputJAX:
         """
-        Function runs the sampler with the captured static objects.
+        Runs the compiled sampler with captured static settings.
+
+        This wrapper chooses the stopping target.
+        If n_total is not provided, it uses cfg.n_total.
+        It then calls the jitted _run function.
 
         Parameters:
         -----------
-            key: JAX random key.
-            n_total: optional stopping target that overrides the config value.
+        key:
+            JAX random key.
+        n_total:
+            optional stopping target.
+            If None, cfg.n_total is used.
 
         Returns:
         --------
-            RunOutputJAX object.
+        RunOutputJAX:
+            final particle history and evidence estimate.
         """
         # use stopping or fall back to config value
         n_total_use = cfg.n_total if n_total is None else int(n_total)

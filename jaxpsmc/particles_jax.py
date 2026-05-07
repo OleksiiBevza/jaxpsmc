@@ -8,46 +8,53 @@ from jax import lax
 
 class ParticlesState(NamedTuple):
     """
-    Class stores the full particle history across all recorded steps.
+    Stores the full particle history across recorded SMC steps.
+
+    This object contains fixed-size buffers.
+    Each new particle step is written into the next free position.
+    The field t stores how many steps have been recorded.
 
     Parameters:
-    ------------
-    t: 
-        number of filled steps.
-    u: 
-        stored latent values with shape (T, N, D).
-    x: 
-        stored transformed values with shape (T, N, D).
-    logdetj: 
-        stored log absolute Jacobian terms with shape (T, N).
-    logl: 
-        stored log-likelihood values with shape (T, N).
-    logp: 
-        stored log-prior values with shape (T, N).
-    logw: 
-        stored log-weight values with shape (T, N).
-    blobs: 
-        stored extra values with shape (T, N, B).
-    iter: 
-        stored iteration counts with shape (T,).
-    logz: 
-        stored log normalizing constant values with shape (T,).
-    calls: 
-        stored call counts with shape (T,).
-    steps: 
-        stored step counts with shape (T,).
-    efficiency: 
-        stored efficiency values with shape (T,).
-    ess: 
-        stored effective sample size values with shape (T,).
-    accept: 
-        stored acceptance values with shape (T,).
-    beta: 
-        stored beta values with shape (T,).
+    -----------
+    t:
+        number of recorded steps.
+    u:
+        stored latent particles, shape (T, N, D).
+    x:
+        stored transformed particles, shape (T, N, D).
+    logdetj:
+        stored log absolute Jacobian terms, shape (T, N).
+    logl:
+        stored log-likelihood values, shape (T, N).
+    logp:
+        stored log-prior values, shape (T, N).
+    logw:
+        stored log-weight values, shape (T, N).
+    blobs:
+        stored extra per-particle values, shape (T, N, B).
+        B can be zero.
+    iter:
+        stored iteration index for each step, shape (T,).
+    logz:
+        stored log normalizing constant values, shape (T,).
+    calls:
+        stored function-call counts, shape (T,).
+    steps:
+        stored inner-step counts, shape (T,).
+    efficiency:
+        stored efficiency values, shape (T,).
+    ess:
+        stored effective sample size values, shape (T,).
+    accept:
+        stored acceptance values, shape (T,).
+    beta:
+        stored annealing values, shape (T,).
 
     Returns:
-        ParticlesState object with the particle history buffers.
-    """    
+    --------
+    ParticlesState:
+        fixed-size particle history buffers and the current write index.
+    """  
     t: jax.Array          # nr of filled steps: [0 to max_steps)
     u: jax.Array          # (T, N, D)   latent values for each step
     x: jax.Array          # (T, N, D)   transformed values for each step
@@ -69,44 +76,48 @@ class ParticlesState(NamedTuple):
 
 class ParticlesStep(NamedTuple):
     """
-    Class stores values for one particle step.
+    Stores particle values for one recorded step.
+
+    This object contains one batch of particles.
+    It is written into a ParticlesState by record_step_jax.
 
     Parameters:
     -----------
-    u: 
-        latent values with shape (N, D).
-    x: 
-        transformed values with shape (N, D).
-    logdetj: 
-        log absolute Jacobian terms with shape (N,).
-    logl: 
-        log-likelihood values with shape (N,).
-    logp: 
-        log-prior values with shape (N,).
-    logw: 
-        log-weight values with shape (N,).
-    blobs: 
-        extra values with shape (N, B).
-    iter: 
-        iteration count for the step.
-    logz: 
-        log normalizing constant for the step.
-    calls: 
-        function call count for the step.
-    steps: 
-        inner step count for the step.
-    efficiency: 
-        efficiency value for the step.
-    ess: 
-        effective sample size for the step.
-    accept: 
-        acceptance value for the step.
-    beta: 
-        beta value for the step.
+    u:
+        latent particles, shape (N, D).
+    x:
+        transformed particles, shape (N, D).
+    logdetj:
+        log absolute Jacobian terms, shape (N,).
+    logl:
+        log-likelihood values, shape (N,).
+    logp:
+        log-prior values, shape (N,).
+    logw:
+        log-weight values, shape (N,).
+    blobs:
+        extra per-particle values, shape (N, B).
+    iter:
+        iteration index for this step.
+    logz:
+        log normalizing constant for this step.
+    calls:
+        function-call count for this step.
+    steps:
+        number of inner mutation steps for this step.
+    efficiency:
+        efficiency value for this step.
+    ess:
+        effective sample size for this step.
+    accept:
+        acceptance value for this step.
+    beta:
+        annealing value for this step.
 
     Returns:
     --------
-        ParticlesStep object with values for one step.
+    ParticlesStep:
+        particle values and diagnostics for one step.
     """
     # single-step values (no Python dicts)
     u: jax.Array          # (N, D)
@@ -135,23 +146,31 @@ def init_particles_state_jax(
     dtype=jnp.float32,
 ) -> ParticlesState:
     """
-    Function creates an empty particle history state.
+    Creates an empty particle history state.
+
+    The function allocates fixed-size arrays.
+    These arrays store particle values and diagnostics for later steps.
+    The initial number of recorded steps is zero.
 
     Parameters:
     -----------
-    max_steps: 
+    max_steps:
         maximum number of steps to store.
-    n_particles: 
-        number of particles per step.
-    n_dim: 
+    n_particles:
+        number of particles stored at each step.
+    n_dim:
         dimension of each particle.
-    blob_dim: 
-        size of the extra blob vector.
-    dtype: 
-        numeric dtype used for the buffers.
+    blob_dim:
+        dimension of the extra blob vector.
+        Use zero if no extra values are stored.
+    dtype:
+        numeric dtype used for floating-point buffers.
 
     Returns:
-        ParticlesState object with zero-filled buffers.
+    --------
+    ParticlesState:
+        zero-filled particle history buffers.
+        The log-weight buffer is initialized to -inf.
     """
     # names for buffer sizes.
     T, N, D, B = max_steps, n_particles, n_dim, blob_dim
@@ -190,18 +209,23 @@ def init_particles_state_jax(
 @jax.jit
 def record_step_jax(state: ParticlesState, step: ParticlesStep) -> ParticlesState:
     """
-    Function writes one step into the particle history state.
+    Writes one particle step into the history state.
+
+    The step is written at the current index state.t.
+    The counter t is then increased by one.
+    If the buffer is already full, the last slot is overwritten.
 
     Parameters:
     -----------
-    state: 
+    state:
         current particle history state.
-    step: 
-        values to store for the next step.
+    step:
+        particle values and diagnostics to record.
 
     Returns:
     --------
-    new ParticlesState object with the step recorded.
+    ParticlesState:
+        updated particle history state.
     """
     # define total buffer length
     T = state.logl.shape[0]
@@ -234,16 +258,21 @@ def record_step_jax(state: ParticlesState, step: ParticlesStep) -> ParticlesStat
 @jax.jit
 def pop_step_jax(state: ParticlesState) -> ParticlesState:
     """
-    Function removes the most recent recorded step by lowering t.
+    Removes the most recent recorded step from the active history.
+
+    The stored arrays are not cleared.
+    Only the counter t is reduced by one.
+    Values after the new t are treated as inactive.
 
     Parameters:
     -----------
-    state: 
+    state:
         current particle history state.
 
     Returns:
     --------
-    new ParticlesState object with t reduced by one.
+    ParticlesState:
+        same buffers with t reduced by one.
     """
     # Lower t but not below zero
     t_new = jnp.maximum(state.t - 1, jnp.array(0, dtype=state.t.dtype))
@@ -254,16 +283,21 @@ def pop_step_jax(state: ParticlesState) -> ParticlesState:
 @jax.jit
 def step_mask_jax(state: ParticlesState) -> jax.Array:
     """
-    Function builds a mask for the recorded steps.
+    Builds a mask for recorded steps.
+
+    Entries before state.t are active.
+    Entries at or after state.t are inactive.
 
     Parameters:
     -----------
-    state: 
+    state:
         current particle history state.
 
     Returns:
     --------
-        boolean array of shape (T,) that is True for recorded steps.
+    jax.Array:
+        Boolean mask of shape (T,).
+        True means the step has been recorded.
     """
     T = state.logl.shape[0]
     return jnp.arange(T) < state.t  # (T,) bool
@@ -276,25 +310,33 @@ def compute_logw_and_logz_jax(
     normalize: bool | jax.Array = True,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """
-    Function computes flattened log weights and the final log normalizing constant.
+    Computes final flattened log weights and log normalizing constant.
+
+    The function uses the recorded particle history.
+    It builds weights for all active stored particles.
+    Inactive steps are assigned log weight -inf.
+
+    If normalize is True, the returned log weights are normalized.
+    Then their exponentiated values sum to one.
 
     Parameters:
     -----------
-    state: 
+    state:
         current particle history state.
-    beta_final: 
-        final beta value used in the weight formula.
-    normalize: 
+    beta_final:
+        final annealing value used in the weight formula.
+    normalize:
         if True, normalize the flattened log weights.
 
     Returns:
     --------
-    logw_flat: 
-        flattened log weights with shape (T * N,).
-    logz_new: 
-        final log normalizing constant.
-    mask_flat: 
-        boolean mask with shape (T * N,) for valid entries.
+    tuple[jax.Array, jax.Array, jax.Array]:
+        logw_flat:
+            flattened final log weights, shape (T * N,).
+        logz_new:
+            final log normalizing constant estimate.
+        mask_flat:
+            Boolean mask for active flattened entries, shape (T * N,).
     """
     # read stored arrays used in the calculation.
     logl = state.logl  # (T, N)
@@ -334,6 +376,19 @@ def compute_logw_and_logz_jax(
     normalize_arr = jnp.asarray(normalize)
 
     def _norm(lw):
+        """
+        Normalizes flattened log weights.
+
+        Parameters:
+        -----------
+        lw:
+            unnormalized flattened log weights.
+
+        Returns:
+        --------
+        jax.Array:
+            normalized flattened log weights.
+        """
         # subtract logsumexp so the weights sum to one
         return lw - jax.nn.logsumexp(lw)
 
@@ -350,21 +405,26 @@ def compute_results_jax(
     normalize: bool | jax.Array = True,
 ) -> Dict[str, jax.Array]:
     """
-    Function builds a result dictionary from the particle history state.
+    Builds a result dictionary from the particle history state.
+
+    The dictionary contains masks, final weights, final logz,
+    and all stored particle history arrays.
+    This is the main output format used after sampling.
 
     Parameters:
     -----------
-    state: 
+    state:
         current particle history state.
-    beta_final: 
-        final beta value used in the weight formula.
-    normalize: 
+    beta_final:
+        final annealing value used in the weight formula.
+    normalize:
         if True, normalize the flattened log weights.
 
     Returns:
-    ---------
-    dict
-        with masks, final weights, final logz, and all stored history arrays.
+    --------
+    Dict[str, jax.Array]:
+        result dictionary with particle history, final weights,
+        final logz, and masks for active entries.
     """
     # compute final flattened weights and masks
     logw_flat, logz_new, mask_flat = compute_logw_and_logz_jax(state, beta_final, normalize)

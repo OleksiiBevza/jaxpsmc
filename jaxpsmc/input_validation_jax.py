@@ -14,19 +14,24 @@ Array = jax.Array
 
 def assert_array_ndim(x: Array, ndim: int, *, name: str = "x") -> Array:
     """
-    Function checks whether an array has the expected number of dimensions.
+    Checks whether an array has the expected number of dimensions.
+
+    This function is used for input validation.
+    It raises a checkify error if the array dimension count is wrong.
+    If the check passes, the original array is returned unchanged.
 
     Parameters:
     -----------
-    x: 
+    x:
         array to check.
-    ndim: 
-        required number of dimensions.
-    name: 
+    ndim:
+        expected number of dimensions.
+    name:
         variable name used in the error message.
 
     Returns:
     --------
+    Array:
         same input array if the check passes.
     """
     # convert ndim to JAX scalar so it can be used inside JAX
@@ -41,35 +46,45 @@ def assert_array_ndim(x: Array, ndim: int, *, name: str = "x") -> Array:
 
 def assert_array_2d(x: Array, *, name: str = "x") -> Array:
     """
-    Function checks whether an array is 2D.
+    Checks whether an array is two-dimensional.
+
+    This is a small wrapper around assert_array_ndim.
+    It requires the input to have exactly two dimensions.
 
     Parameters:
     -----------
-    x: 
+    x:
         array to check.
-    name: 
-        variable name used in error message.
+    name:
+        variable name used in the error message.
 
     Returns:
+    --------
+    Array:
         same input array if the check passes.
-    """    
+    """ 
     return assert_array_ndim(x, 2, name=name)
 
 
 def assert_array_1d(x: Array, *, name: str = "x") -> Array:
     """
-    Function checks whether an array is 1D.
+    Checks whether an array is one-dimensional.
+
+    This is a small wrapper around assert_array_ndim.
+    It requires the input to have exactly one dimension.
 
     Parameters:
     -----------
-    x: 
+    x:
         array to check.
-    name: 
+    name:
         variable name used in the error message.
 
     Returns:
+    --------
+    Array:
         same input array if the check passes.
-    """  
+    """
     return assert_array_ndim(x, 1, name=name)
 
 
@@ -77,21 +92,27 @@ def assert_arrays_equal_shape(
     x: Array, y: Array, *, x_name: str = "x", y_name: str = "y"
 ) -> Tuple[Array, Array]:
     """
-    Function checks whether two arrays have the same shape.
+    Checks whether two arrays have the same shape.
+
+    The function compares the full shape of both arrays.
+    If the shapes are different, it raises a checkify error.
+    If the check passes, both arrays are returned unchanged.
 
     Parameters:
     -----------
-    x: 
-        first array.
-    y: 
-        second array.
-    x_name: 
-        name of the first array for error message.
-    y_name: 
-        name of the second array for error message.
+    x:
+        first array to check.
+    y:
+        second array to check.
+    x_name:
+        name of the first array used in the error message.
+    y_name:
+        name of the second array used in the error message.
 
     Returns:
-        same two arrays if the check passes.
+    --------
+    Tuple[Array, Array]:
+        same two input arrays if the check passes.
     """
     # shape comparison is static, so convert result to JAX scalar
     ok = jnp.asarray(x.shape == y.shape)
@@ -103,22 +124,27 @@ def assert_equal_type(
     x: Array, y: Array, *, x_name: str = "x", y_name: str = "y"
 ) -> Tuple[Array, Array]:
     """
-    Function checks whether two arrays have the same dtype.
+    Checks whether two arrays have the same dtype.
+
+    The function compares the dtype of both arrays.
+    If the dtypes are different, it raises a checkify error.
+    If the check passes, both arrays are returned unchanged.
 
     Parameters:
     -----------
-    x: 
-        first array.
-    y: 
-        second array.
-    x_name: 
-        name of the first array for the error message.
-    y_name: 
-        name of the second array for the error message.
+    x:
+        first array to check.
+    y:
+        second array to check.
+    x_name:
+        name of the first array used in the error message.
+    y_name:
+        name of the second array used in the error message.
 
     Returns:
     --------
-        same two arrays if the check passes.
+    Tuple[Array, Array]:
+        same two input arrays if the check passes.
     """
     # compare dtypes of both arrays
     ok = jnp.asarray(x.dtype == y.dtype)
@@ -128,16 +154,21 @@ def assert_equal_type(
 
 def assert_array_float(x: Array, *, name: str = "x") -> Array:
     """
-    Function checks whether an array has a floating-point dtype.
+    Checks whether an array has a floating-point dtype.
+
+    This is useful before operations that require real-valued arrays.
+    Integer and Boolean arrays fail this check.
 
     Parameters:
     -----------
-    x: 
+    x:
         array to check.
-    name: 
+    name:
         variable name used in the error message.
 
     Returns:
+    --------
+    Array:
         same input array if the check passes.
     """
     # check if dtype is floating-point type
@@ -155,24 +186,31 @@ def within_interval_mask(
     right_open: bool = False,
 ) -> Array:
     """
-    Function builds a mask that shows whether values are inside an interval.
+    Builds a Boolean mask for values inside an interval.
+
+    The interval can be closed or open on either side.
+    A NaN left bound is treated as negative infinity.
+    A NaN right bound is treated as positive infinity.
 
     Parameters:
     -----------
-    x: 
+    x:
         values to test.
-    left: 
+    left:
         left endpoint of the interval.
-    right: 
+    right:
         right endpoint of the interval.
-    left_open: 
-        if True, left endpoint is excluded.
-    right_open: 
-        if True, right endpoint is excluded.
+    left_open:
+        if True, the left endpoint is excluded.
+        If False, the left endpoint is included.
+    right_open:
+        if True, the right endpoint is excluded.
+        If False, the right endpoint is included.
 
     Returns:
     --------
-        boolean mask with same shape as the comparison.
+    Array:
+        Boolean mask showing which values are inside the interval.
     """
     # left NaN bound as negative infinity
     left_ = jnp.where(jnp.isnan(left), -jnp.inf, left)
@@ -207,25 +245,32 @@ def assert_array_within_interval(
     name: str = "x",
 ) -> Array:
     """
-    Function checks whether all values of an array are inside an interval.
+    Checks whether all array values are inside an interval.
+
+    The function builds an interval mask.
+    The check passes only if every value is inside the interval.
+    If at least one value is outside, it raises a checkify error.
 
     Parameters:
     -----------
-    x: 
+    x:
         array to check.
-    left: 
+    left:
         left endpoint of the interval.
-    right: 
+    right:
         right endpoint of the interval.
-    left_open: 
+    left_open:
         if True, the left endpoint is excluded.
-    right_open: 
+        If False, the left endpoint is included.
+    right_open:
         if True, the right endpoint is excluded.
-    name: 
+        If False, the right endpoint is included.
+    name:
         variable name used in the error message.
 
     Returns:
     --------
+    Array:
         same input array if the check passes.
     """
     # get boolean mask for all elements
@@ -250,26 +295,51 @@ def jit_with_checks(
     static_argnames: Tuple[str, ...] = (),
 ):
     """
-    Function builds a jitted version of a function that keeps checkify checks.
+    Creates a jitted function that keeps runtime checks.
+
+    Normal JAX jit can make validation errors harder to handle.
+    This wrapper uses checkify to track checks inside jitted code.
+    When a check fails, the wrapped function raises the error.
 
     Parameters:
     -----------
-    fn: 
+    fn:
         function to wrap.
-    errors: 
+    errors:
         checkify error categories to enable.
-    static_argnames: 
-        names of keyword arguments that should be treated as static.
+    static_argnames:
+        names of arguments that should be treated as static by jit.
 
-    Output:
-    -------
-        wrapped function that runs with jit and raises an error when a check fails.
+    Returns:
+    --------
+    Callable:
+        wrapped function.
+        It runs with jit and raises an error if a check fails.
     """
 
     checked_fn = checkify.checkify(fn, errors=errors)
     jitted = jax.jit(checked_fn, static_argnames=static_argnames)
 
     def wrapped(*args, **kwargs):
+        """
+        Runs the checked and jitted function.
+
+        The function first receives checkify output.
+        It then throws any recorded error.
+        If no error exists, it returns the original function output.
+
+        Parameters:
+        -----------
+        *args:
+            positional arguments passed to the wrapped function.
+        **kwargs:
+            keyword arguments passed to the wrapped function.
+
+        Returns:
+        --------
+        Any:
+            output of the original function.
+        """
         err, out = jitted(*args, **kwargs)
         err.throw()   
         return out

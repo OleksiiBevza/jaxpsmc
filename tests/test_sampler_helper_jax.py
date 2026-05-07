@@ -122,6 +122,7 @@ class HelperTest(chex.TestCase):
             cur,
             use_preconditioned_pcn=jnp.asarray(False),
             loglike_single_fn=lambda x: (jnp.array(0.0), jnp.zeros((0,))),
+            loglike_approx_single_fn=lambda x: jnp.array(0.0),
             logprior_fn=lambda x: jnp.array(0.0),
             flow=IdentityFlowJAX(1),
             scaler_cfg=cfg,

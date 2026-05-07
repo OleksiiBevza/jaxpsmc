@@ -29,16 +29,27 @@ METRIC_USS = jnp.int32(1)
 
 def _metric_value(weights, metric_id, n_active):
     """
-    Function computes the selected weight metric.
+    Computes the selected particle-quality metric.
+
+    The function chooses between two metrics.
+    ESS measures how evenly the particle weights are spread.
+    USS measures how many unique particles are expected after resampling.
 
     Parameters:
     -----------
-        weights: array of particle weights.
-        metric_id: integer code that selects ESS or USS.
-        n_active: number of active particles used by USS.
+    weights:
+        normalized particle weights, shape (K,).
+    metric_id:
+        integer code selecting the metric.
+        METRIC_ESS selects effective sample size.
+        METRIC_USS selects unique sample size.
+    n_active:
+        number of active particles.
+        This is used by the USS calculation.
 
     Returns:
     --------
+    Array:
         selected metric value.
     """
     return lax.cond(
@@ -51,18 +62,35 @@ def _metric_value(weights, metric_id, n_active):
 
 def _weights_metric_logz(state, beta, metric_id, n_active):
     """
-    Function computes weights, the chosen metric, and logz for one beta value.
+    Computes weights, metric value, and log evidence for one beta.
+
+    The function builds final weights from the stored particle history.
+    It then normalizes those weights and evaluates the selected metric.
+    It also returns the log normalizing constant estimate for this beta.
 
     Parameters:
     -----------
-        state: particle history state.
-        beta: beta value used to build the weights.
-        metric_id: integer code that selects ESS or USS.
-        n_active: number of active particles used by USS.
+    state:
+        particle history state.
+    beta:
+        annealing value used to build the weights.
+    metric_id:
+        integer code selecting ESS or USS.
+    n_active:
+        number of active particles.
+        This is used by the USS metric.
 
     Returns:
     --------
-        full normalized weights, metric value, new logz, and unnormalized log-weights.
+    tuple:
+        w_full:
+            normalized flattened particle weights, shape (K,).
+        m_val:
+            selected metric value.
+        logz_new:
+            log normalizing constant estimate at this beta.
+        logw_flat:
+            unnormalized flattened log weights, shape (K,).
     """
     # build flattened log-weights for the chosen beta
     logw_flat, logz_new, mask_flat = compute_logw_and_logz_jax(
@@ -79,38 +107,60 @@ def _weights_metric_logz(state, beta, metric_id, n_active):
 
 def _bisect_beta_scan(state, lo, hi, target, metric_id, n_active, steps, tol):
     """
-    Function finds a beta value by scanning a bisection update.
+    Finds a beta value using a fixed-length bisection scan.
+
+    The goal is to find a beta where the selected metric is close
+    to the requested target. The function works inside JAX because
+    it uses a fixed number of scan steps instead of a Python loop.
 
     Parameters:
     -----------
-        state: particle history state.
-        lo: lower beta bound.
-        hi: upper beta bound.
-        target: target value for ESS or USS.
-        metric_id: integer code that selects ESS or USS.
-        n_active: number of active particles used by USS.
-        steps: number of scan steps.
-        tol: tolerance for hitting the target.
+    state:
+        particle history state.
+    lo:
+        lower beta bound.
+    hi:
+        upper beta bound.
+    target:
+        target value for the selected metric.
+    metric_id:
+        integer code selecting ESS or USS.
+    n_active:
+        number of active particles.
+        This is used by the USS metric.
+    steps:
+        number of bisection scan steps.
+    tol:
+        tolerance for accepting the target match.
 
     Returns:
     --------
-        beta value from the bisection scan.
+    Array:
+        beta value selected by the bisection scan.
     """
     # keep all temporary values in the same dtype as the bounds
     dtype = jnp.asarray(lo).dtype
 
     def scan_step(carry, _):
         """
-        Function performs one bisection update inside the scan.
+        Performs one bisection update for beta.
+
+        The midpoint beta is tested.
+        If the metric is close enough to the target, the scan marks
+        the search as done. Otherwise, the beta interval is narrowed.
 
         Parameters:
         -----------
-            carry: current lower bound, upper bound, done flag, and beta.
-            _: unused scan input.
+        carry:
+            tuple containing lower bound, upper bound, done flag,
+            and current beta estimate.
+        _:
+            unused scan input.
 
         Returns:
         --------
-            updated carry and no extra scan output.
+        tuple:
+            updated carry and no scan output.
         """
         # unpack current bounds and status
         lo_c, hi_c, done_c, beta_c = carry
@@ -149,17 +199,27 @@ def _bisect_beta_scan(state, lo, hi, target, metric_id, n_active, steps, tol):
 
 def _dynamic_neff(n_eff, weights_full, n_active, ratio):
     """
-    Function updates the target effective sample size using the unique sample size.
+    Updates the target effective sample size dynamically.
+
+    The update uses unique sample size as feedback.
+    If the unique sample size is too small, the target is reduced.
+    If the unique sample size is too large, the target is increased.
+    This helps control how aggressive the next reweighting step is.
 
     Parameters:
     -----------
-        n_eff: current target effective sample size.
-        weights_full: full normalized weights.
-        n_active: number of active particles.
-        ratio: target ratio used to compare the unique sample size.
+    n_eff:
+        current target effective sample size.
+    weights_full:
+        normalized particle weights, shape (K,).
+    n_active:
+        number of active particles.
+    ratio:
+        target ratio for the unique sample size.
 
     Returns:
     --------
+    Array:
         updated target effective sample size as int32.
     """
     # convert scalar inputs to weight dtype for stable arithmetic   
@@ -204,24 +264,58 @@ def reweight_step_jax(
     trim_ess=0.99,
 ):
     """
-    Function performs one reweight step and keeps the highest-weight particles.
+    Performs one SMC reweighting step.
+
+    The function chooses the next beta value.
+    It then computes importance weights for all stored particles.
+    After that, it trims very small weights and keeps the strongest
+    particles for the next resampling and mutation steps.
+
+    The beta choice has three cases.
+    If the previous beta already gives a small metric, beta is unchanged.
+    If beta equal to one is still safe, beta jumps to one.
+    Otherwise, a bisection scan finds an intermediate beta.
 
     Parameters:
     -----------
-        state: particle history state.
-        n_effective: target ESS or USS value.
-        metric_id: integer code that selects ESS or USS.
-        dynamic: boolean flag that enables dynamic target updates.
-        n_active: number of active particles.
-        dynamic_ratio: ratio used by the dynamic target update.
-        bins: number of bins used by weight trimming.
-        bisect_steps: number of bisection scan steps.
-        keep_max: maximum number of particles to keep after trimming.
-        trim_ess: ESS ratio target used by weight trimming.
+    state:
+        particle history state.
+    n_effective:
+        target ESS or USS value.
+    metric_id:
+        integer code selecting the metric.
+        METRIC_ESS selects effective sample size.
+        METRIC_USS selects unique sample size.
+    dynamic:
+        Boolean flag.
+        If True, update n_effective using the dynamic rule.
+    n_active:
+        number of active particles used by later stages.
+    dynamic_ratio:
+        ratio used by the dynamic target update.
+    bins:
+        number of bins used by weight trimming.
+        This is static for JAX compilation.
+    bisect_steps:
+        number of fixed bisection steps used to search beta.
+        This is static for JAX compilation.
+    keep_max:
+        maximum number of particles kept after trimming.
+        This is static for JAX compilation.
+    trim_ess:
+        ESS ratio target used by weight trimming.
+        This is static for JAX compilation.
 
     Returns:
     --------
-        current particle dictionary, updated effective target, and summary statistics.
+    tuple:
+        current_particles:
+            dictionary with kept particles, weights, beta, logz,
+            and trimming diagnostics.
+        n_eff_new:
+            updated target effective sample size.
+        stats:
+            dictionary with beta, logz, metric value, and n_effective.
     """
     # define the most recent beta and logz from the state
     t_idx = jnp.maximum(state.t - jnp.int32(1), jnp.int32(0))
@@ -367,19 +461,42 @@ _EVALUEERR  = jnp.int32(-3)
 @partial(jax.jit, static_argnames=("n_active", "reset_weights"))
 def resample_particles_jax(current_particles, *, key, n_active: int, method_code: jnp.int32, reset_weights: bool = True):
     """
-    Function resamples particles using multinomial or systematic resampling.
+    Resamples particles from the current weighted particle set.
+
+    The function draws n_active particles according to their weights.
+    It supports multinomial resampling and systematic resampling.
+    After resampling, weights can be reset to a uniform distribution.
 
     Parameters:
     -----------
-        current_particles: dictionary with particle arrays and weights.
-        key: JAX random key.
-        n_active: number of particles to draw.
-        method_code: integer code, 0 for multinomial and 1 for systematic.
-        reset_weights: if True, reset weights to a uniform distribution.
+    current_particles:
+        dictionary with particle arrays and weights.
+        Expected keys are "u", "x", "logdetj", "logl",
+        "logp", "blobs", and "weights".
+    key:
+        JAX random key used for resampling.
+    n_active:
+        number of particles to draw.
+        This is static for JAX compilation.
+    method_code:
+        integer code selecting the resampling method.
+        0 means multinomial resampling.
+        1 means systematic resampling.
+    reset_weights:
+        if True, reset output weights to uniform values.
+        If False, keep the selected input weights.
 
     Returns:
     --------
-        new particle dictionary, status code, and output key.
+    tuple:
+        new_particles:
+            dictionary with resampled particles and output weights.
+        status:
+            resampling status code.
+            Zero means success.
+            A negative value means invalid weights.
+        key_out:
+            updated JAX random key.
     """
     # read current weights and total number of stored particles
     w = jnp.asarray(current_particles["weights"])
@@ -387,14 +504,19 @@ def resample_particles_jax(current_particles, *, key, n_active: int, method_code
 
     def _multinomial(args):
         """
-        function runs multinomial resampling.
+        Performs multinomial resampling.
+
+        Each output index is drawn independently from the categorical
+        distribution defined by the particle weights.
 
         Parameters:
         -----------
-            args: pair with input key and weights.
+        args:
+            tuple containing input key and weights.
 
         Returns:
         --------
+        tuple:
             sampled indices, status code, and output key.
         """
         # unpack inputs and split the random key
@@ -419,14 +541,20 @@ def resample_particles_jax(current_particles, *, key, n_active: int, method_code
 
     def _systematic(args):
         """
-        Function runs systematic resampling.
+        Performs systematic resampling.
+
+        Systematic resampling uses one random offset and an evenly spaced
+        grid over the cumulative weight distribution. It usually has lower
+        variance than multinomial resampling.
 
         Parameters:
         -----------
-            args: pair with input key and weights.
+        args:
+            tuple containing input key and weights.
 
         Returns:
         --------
+        tuple:
             sampled indices, status code, and output key.
         """
         key_in, weights = args
@@ -486,15 +614,22 @@ def _log_like(
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
 ) -> Tuple[Array, Array]:
     """
-    Function calls the single-particle log-likelihood function.
+    Calls the single-particle log-likelihood function.
+
+    This wrapper gives a consistent interface for batched likelihood
+    evaluation with vmap. It does not change the likelihood value.
 
     Parameters:
     -----------
-        x_i: one particle in x-space.
-        loglike_single_fn: function that returns log-likelihood and blob output.
+    x_i:
+        one particle in x-space, shape (D,).
+    loglike_single_fn:
+        function that evaluates one particle.
+        It must return a log-likelihood value and blob output.
 
     Returns:
     --------
+    Tuple[Array, Array]:
         log-likelihood value and blob output for one particle.
     """
     
@@ -504,53 +639,99 @@ def _log_like(
 _log_like_batched = jax.vmap(_log_like, in_axes=(0, None), out_axes=(0, 0))
 
 
-
+  
 def mutate(
     key: Array,
     current_particles: Dict[str, Array],
     *,
-    use_preconditioned_pcn: Array,  # scalar bool (jnp.bool_)
+    use_preconditioned_pcn: Array,
 
     # functions required by preconditioned_pcn_jax
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
+    loglike_approx_single_fn: Callable[[Array], Array],
     logprior_fn: Callable[[Array], Array],
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
 
     # geometry (Student-t)
-    geom_mu: Array,    # (D,)
-    geom_cov: Array,   # (D, D)
-    geom_nu: Array,    # scalar
+    geom_mu: Array,
+    geom_cov: Array,
+    geom_nu: Array,
 
     # choice form
     n_max: int,
     n_steps: int,
+    use_delayed_acceptance: Array = jnp.asarray(False),
+    da_c_const: Array = jnp.asarray(0.01),
+    da_d_const: Array = jnp.asarray(2.0),
     condition: Optional[Array] = None,
 ) -> Tuple[Array, Dict[str, Array], Dict[str, Array]]:
     """
-    Function performs the mutate step for the current particle set.
+    Performs the mutation step for the current particles.
+
+    Mutation improves particle diversity after resampling.
+    In this implementation, mutation is either a preconditioned pCN move
+    or a no-op branch that returns the particles unchanged.
+
+    When preconditioned pCN is enabled, the function calls
+    preconditioned_pcn_jax. That kernel uses fitted Student-t geometry
+    to build proposals. It may also use delayed acceptance if requested.
 
     Parameters:
     -----------
-        key: JAX random key.
-        current_particles: dictionary with the current particle values.
-        use_preconditioned_pcn: boolean flag that enables the PCN move.
-        loglike_single_fn: single-particle likelihood function.
-        logprior_fn: single-particle prior function.
-        flow: flow object used by the PCN move.
-        scaler_cfg: scaler configuration.
-        scaler_masks: scaler masks.
-        geom_mu: Student-t mean vector.
-        geom_cov: Student-t covariance matrix.
-        geom_nu: Student-t degrees of freedom.
-        n_max: maximum number of inner PCN steps.
-        n_steps: stopping value used by the PCN move.
-        condition: optional conditioning array for the flow.
+    key:
+        JAX random key used by the mutation move.
+    current_particles:
+        dictionary containing the current particle set.
+        Expected keys are "u", "x", "logdetj", "logl", "logp",
+        "logdetj_flow", "blobs", "beta", "calls", and "proposal_scale".
+    use_preconditioned_pcn:
+        Boolean flag.
+        If True, run the preconditioned pCN mutation.
+        If False, return the input particles unchanged.
+    loglike_single_fn:
+        function that evaluates the full likelihood for one x-space particle.
+        It must return a log-likelihood value and blob output.
+    loglike_approx_single_fn:
+        function that evaluates an approximate likelihood for one particle.
+        It is used when delayed acceptance is enabled.
+    logprior_fn:
+        function that evaluates the prior for one x-space particle.
+    flow:
+        flow object used by the pCN move.
+        It must provide forward and inverse bijection methods.
+    scaler_cfg:
+        scaler configuration used to move between u-space and x-space.
+    scaler_masks:
+        scaler masks used by the scaler transformations.
+    geom_mu:
+        Student-t geometry mean, shape (D,).
+    geom_cov:
+        Student-t geometry covariance matrix, shape (D, D).
+    geom_nu:
+        Student-t degrees of freedom.
+    n_max:
+        maximum number of inner pCN iterations.
+    n_steps:
+        stopping-rule value used inside the pCN move.
+    use_delayed_acceptance:
+        if True, use delayed-acceptance logic inside the pCN kernel.
+    da_c_const:
+        conservative delayed-acceptance clipping constant.
+        It must be positive.
+    da_d_const:
+        conservative delayed-acceptance exponent constant.
+        It must be greater than 1.
+    condition:
+        optional conditioning value passed to the flow.
 
     Returns:
     --------
-        new key, new particle dictionary, and mutate summary dictionary.
+    Tuple[Array, Dict[str, Array], Dict[str, Array]]:
+        updated key,
+        updated particle dictionary,
+        and mutation diagnostic dictionary.
     """
     # read particle dimension to build a normalization reference
     u = current_particles["u"]
@@ -573,15 +754,21 @@ def mutate(
 
     def _do_pcn(op):
         """
-        Function runs the preconditioned PCN move.
+        Runs the preconditioned pCN mutation branch.
+
+        The branch unpacks the particle arrays.
+        It then wraps the user likelihood functions so they match
+        the interface expected by preconditioned_pcn_jax.
 
         Parameters:
         -----------
-            op: tuple with key, particle arrays, and PCN settings.
+        op:
+            tuple with key, particle arrays, beta, and proposal scale.
 
         Returns:
         --------
-            result dictionary from the PCN move.
+        Dict[str, Array]:
+            result dictionary from preconditioned_pcn_jax.
         """
         # define key, particle arrays, and settings for PCN step
 
@@ -591,18 +778,43 @@ def mutate(
 
         def loglike_fn_single(x_i: Array) -> Tuple[Array, Array]:
             """
-            Function wraps the single-particle likelihood for the PCN code.
+            Evaluates the full likelihood for one particle.
+
+            This wrapper passes the one-particle input to the user
+            likelihood function through _log_like.
 
             Parameters:
             -----------
-                x_i: one particle in x-space.
+            x_i:
+                one particle in x-space, shape (D,).
 
             Returns:
             --------
-                log-likelihood value and blob output for one particle.
+            Tuple[Array, Array]:
+                full log-likelihood value and blob output.
             """
             # reuse single-particle likelihood wrapper
             return _log_like(x_i, loglike_single_fn)
+        
+
+        def loglike_approx_fn_single(x_i: Array) -> Array:
+            """
+            Evaluates the approximate likelihood for one particle.
+
+            This wrapper converts the result to a JAX array.
+            It is used by the delayed-acceptance path.
+
+            Parameters:
+            -----------
+            x_i:
+                one particle in x-space, shape (D,).
+
+            Returns:
+            --------
+            Array:
+                approximate log-likelihood value.
+            """
+            return jnp.asarray(loglike_approx_single_fn(x_i))
 
         # run preconditioned Crank-Nicolson move with current particles and geometry
         out = preconditioned_pcn_jax(
@@ -610,12 +822,13 @@ def mutate(
             u=u0,
             x=x0,
             logdetj=logdetj0,
-            logl=logl0,
             logp=logp0,
+            logl=logl0,
             logdetj_flow=logdetj_flow0,
             blobs=blobs0,
             beta=beta0,
             loglike_fn=loglike_fn_single,
+            loglike_approx_fn=loglike_approx_fn_single,
             logprior_fn=logprior_fn,
             flow=flow,
             scaler_cfg=scaler_cfg,
@@ -626,20 +839,30 @@ def mutate(
             n_max=n_max,
             n_steps=n_steps,
             proposal_scale=proposal_scale0,
+            use_delayed_acceptance=use_delayed_acceptance,
+            da_c_const=da_c_const,
+            da_d_const=da_d_const,
             condition=condition,
         )
         return out
+    
 
     def _do_noop(op):
         """
-        Function returns the input particles unchanged.
+        Returns the input particles unchanged.
+
+        This branch is used when pCN mutation is disabled.
+        It preserves the same output structure as the pCN branch.
+        This is needed because lax.cond requires matching structures.
 
         Parameters:
         -----------
-            op: tuple with key, particle arrays, and settings.
+        op:
+            tuple with key, particle arrays, beta, and proposal scale.
 
         Returns:
         --------
+        Dict[str, Array]:
             result dictionary with unchanged particles and zero counters.
         """
         # define key, particle arrays, and settings for the PCN step.        
@@ -734,20 +957,35 @@ def not_termination_jax(
     beta_tol: Array = jnp.asarray(1e-4),
 ) -> Array:
     """
-    Function checks whether the sampler should continue.
+    Checks whether the SMC sampler should continue.
+
+    The sampler continues if beta has not reached one.
+    It also continues if the final-weight metric is still too small.
+    The metric can be ESS or USS, depending on metric_code.
 
     Parameters:
     -----------
-        state: particle history state.
-        beta_current: current beta value.
-        n_total: ESS or USS threshold.
-        metric_code: integer code, 0 for ESS and 1 for USS.
-        n_active: number of active particles used by USS.
-        beta_tol: tolerance for checking whether beta is close to 1.
+    state:
+        particle history state.
+    beta_current:
+        current annealing value.
+    n_total:
+        required ESS or USS threshold.
+    metric_code:
+        integer code selecting the metric.
+        0 means ESS.
+        1 means USS.
+    n_active:
+        number of active particles used by USS.
+    beta_tol:
+        tolerance used to decide whether beta is close enough to one.
 
     Returns:
     --------
-        boolean value that is True when sampling should continue.
+    Array:
+        Boolean scalar.
+        True means the sampler should continue.
+        False means the termination condition has been reached.
     """
     # do final-step log-weights at beta = 1
     logw_flat, _, mask_flat = compute_logw_and_logz_jax(
@@ -803,17 +1041,35 @@ _EVALUEERR  = jnp.int32(-3)
 @partial(jax.jit, static_argnames=("size",))
 def _systematic_resample_impl(key, weights, size: int):
     """
-    Function runs JIT-compiled core of systematic resampling.
+    Runs the JIT-compiled core of systematic resampling.
+
+    The function validates and normalizes the weights.
+    It then builds a cumulative distribution and samples indices
+    using one random offset and an evenly spaced grid.
 
     Parameters:
     -----------
-        key: JAX random key.
-        weights: input weight array.
-        size: number of resampled indices to return.
+    key:
+        JAX random key used for the offset draw.
+    weights:
+        input weights, shape (K,).
+        They should be finite, non-negative, and have positive sum.
+    size:
+        number of resampled indices to return.
+        This is static for JAX compilation.
 
     Returns:
     --------
-        resampled indices, status code, and output key.
+    tuple:
+        idx:
+            resampled indices, shape (size,).
+            Invalid weights produce dummy index -1.
+        status:
+            status code.
+            Zero means success.
+            A negative value means invalid weights.
+        key_out:
+            updated JAX random key.
     """
     # convert weights to an array and dtype
     w = jnp.asarray(weights)
@@ -849,33 +1105,63 @@ def _systematic_resample_impl(key, weights, size: int):
 
 class PosteriorOut(NamedTuple):
     """
-    Function-like container stores the fixed-shape posterior outputs.
+    Stores fixed-shape posterior outputs.
+
+    This object contains the flattened posterior sample arrays.
+    It also contains importance weights, trimming diagnostics,
+    optional resampled outputs, and the final evidence estimate.
+
+    The arrays keep fixed shapes because this is useful for JAX.
+    Masks show which entries are valid and which entries were kept
+    after trimming.
 
     Parameters:
     -----------
-        samples: flattened sample array with shape (K, D).
-        logl: flattened log-likelihood array with shape (K,).
-        logp: flattened log-prior array with shape (K,).
-        blobs: flattened blob array with shape (K, B).
-        mask_valid: boolean mask that marks filled history entries.
-        weights: normalized importance weights over kept entries.
-        logw: log of the kept weights.
-        mask_trim: boolean mask that marks kept entries after trimming.
-        threshold: trimming threshold.
-        ess_ratio: ESS ratio after trimming.
-        i_final: final scan index used by trimming.
-        idx_resampled: resampled indices.
-        resample_status: resampling status code.
-        samples_resampled: resampled sample array.
-        logl_resampled: resampled log-likelihood array.
-        logp_resampled: resampled log-prior array.
-        blobs_resampled: resampled blob array.
-        logz_new: final evidence value.
-        key_out: output random key.
+    samples:
+        flattened posterior samples, shape (K, D).
+    logl:
+        flattened log-likelihood values, shape (K,).
+    logp:
+        flattened log-prior values, shape (K,).
+    blobs:
+        flattened extra likelihood outputs, shape (K, B).
+    mask_valid:
+        Boolean mask for filled history entries, shape (K,).
+    weights:
+        normalized importance weights over kept entries, shape (K,).
+        Dropped or invalid entries have weight zero.
+    logw:
+        log of the kept weights, shape (K,).
+        Entries with zero weight have value -inf.
+    mask_trim:
+        Boolean mask for entries kept after trimming, shape (K,).
+    threshold:
+        trimming threshold used for the weights.
+    ess_ratio:
+        ESS ratio achieved by the trimming step.
+    i_final:
+        final scan index used by the trimming routine.
+    idx_resampled:
+        posterior resampling indices, shape (K,).
+    resample_status:
+        status code from posterior resampling.
+    samples_resampled:
+        resampled posterior samples, shape (K, D).
+    logl_resampled:
+        resampled log-likelihood values, shape (K,).
+    logp_resampled:
+        resampled log-prior values, shape (K,).
+    blobs_resampled:
+        resampled blob values, shape (K, B).
+    logz_new:
+        final log evidence estimate.
+    key_out:
+        updated JAX random key after optional resampling.
 
     Returns:
     --------
-        PosteriorOut object with posterior arrays and metadata.
+    PosteriorOut:
+        posterior samples, weights, diagnostics, and optional resamples.
     """
     # flattened, fixed-size (T_max * N) arrays
     samples: jax.Array              # (K, D)
@@ -912,17 +1198,41 @@ def trim_weights_scan_jax(
     bins: int = 1000,
 ):
     """
-    Function trims importance weights by scanning percentile thresholds.
+    Trims importance weights by scanning percentile thresholds.
+
+    The function searches for a weight threshold.
+    Weights below the threshold are dropped.
+    The threshold is chosen so the retained weights preserve
+    at least the requested ESS ratio.
+
+    This is useful when many tiny weights add cost but little value.
+    The output weights are renormalized over the kept entries.
 
     Parameters:
     -----------
-        weights: input weight array.
-        ess: target ratio between trimmed ESS and total ESS.
-        bins: number of percentile grid points.
+    weights:
+        input importance weights, shape (K,).
+        They should be finite, non-negative, and have positive sum.
+    ess:
+        target ratio between trimmed ESS and full ESS.
+        Values close to one keep more particles.
+    bins:
+        number of percentile grid points to scan.
+        This is static for JAX compilation.
 
     Returns:
     --------
-        trim mask, trimmed weights, threshold, ESS ratio, and final scan index.
+    tuple:
+        mask:
+            Boolean mask showing which weights are kept.
+        w_trim:
+            trimmed and normalized weights.
+        threshold:
+            selected weight threshold.
+        ratio:
+            achieved ESS ratio after trimming.
+        i_final:
+            selected percentile-grid index.
     """
     # convert inputs to arrays with a common dtype
     w = jnp.asarray(weights)
@@ -949,15 +1259,21 @@ def trim_weights_scan_jax(
 
     def ratio_for_i(i: jax.Array):
         """
-        Function computes the threshold and ESS ratio for one percentile index.
+        Computes the trimming threshold and ESS ratio for one grid index.
+
+        The index selects a percentile.
+        The percentile gives a threshold.
+        The function then computes the ESS of the weights above that threshold.
 
         Parameters:
         -----------
-            i: percentile grid index.
+        i:
+            percentile grid index.
 
         Returns:
         --------
-            threshold and ESS ratio for that index.
+        tuple:
+            threshold and achieved ESS ratio.
         """
         # define percentile and convert it to a fraction
         p = lax.dynamic_index_in_dim(percentiles, i, axis=0, keepdims=False)
@@ -996,16 +1312,22 @@ def trim_weights_scan_jax(
 
     def scan_step(carry, i):
         """
-        Function updates the best trimming index during the scan.
+        Updates the selected trimming index during the scan.
+
+        The scan moves from high percentiles to low percentiles.
+        It stores the first index that achieves the requested ESS ratio.
 
         Parameters:
         -----------
-            carry: found flag and current best index.
-            i: current percentile index.
+        carry:
+            tuple with found flag and current best index.
+        i:
+            current percentile grid index.
 
         Returns:
         --------
-            updated carry and the ESS ratio at index i.
+        tuple:
+            updated carry and ESS ratio at this index.
         """
         # unpack scan state and evaluate current index
         found, i_best = carry
@@ -1052,22 +1374,49 @@ def posterior_jax(
     beta_final: float | jax.Array = 1.0,
 ) -> PosteriorOut:
     """
-    Function builds posterior arrays, importance weights, and optional resampled outputs.
+    Builds posterior arrays from the stored particle history.
+
+    The function flattens all recorded samples into one posterior array.
+    It computes final importance weights at beta_final.
+    It can trim small weights to reduce the effective output set.
+    It can also produce a resampled posterior sample.
+
+    The returned object keeps fixed shapes.
+    Invalid or inactive entries are marked by masks and zeroed arrays.
 
     Parameters:
     -----------
-        state: particle history state.
-        key: JAX random key.
-        do_resample: boolean flag that enables posterior resampling.
-        resample_method: integer code, 1 for systematic and 0 for multinomial.
-        trim_importance_weights: boolean flag that enables trimming.
-        ess_trim: ESS ratio target used by trimming.
-        bins_trim: number of bins used by trimming.
-        beta_final: beta value used to build the final weights.
+    state:
+        particle history state.
+    key:
+        JAX random key used if posterior resampling is enabled.
+    do_resample:
+        Boolean flag.
+        If True, draw resampled posterior particles.
+        If False, keep identity indices.
+    resample_method:
+        integer code for posterior resampling.
+        1 means systematic resampling.
+        0 means multinomial resampling.
+    trim_importance_weights:
+        Boolean flag.
+        If True, trim low-weight entries before posterior output.
+        If False, keep all valid entries.
+    ess_trim:
+        ESS ratio target used by trimming.
+        Values close to one keep more weighted particles.
+    bins_trim:
+        number of percentile bins used by trimming.
+        This is static for JAX compilation.
+    beta_final:
+        final beta value used to compute posterior weights.
+        Usually this is 1.0.
 
     Returns:
     --------
-        PosteriorOut object with posterior arrays, weights, and optional resampling outputs.
+    PosteriorOut:
+        fixed-shape posterior samples, weights, masks,
+        optional resampled arrays, evidence estimate, and output key.
     """
     # flatten history arrays into one sample axis
     T, N, D = state.x.shape
@@ -1093,15 +1442,22 @@ def posterior_jax(
 
     def _do_trim(_):
         """
-        Function trims the importance weights.
+        Applies trimming to the posterior importance weights.
+
+        The trimming routine selects a threshold.
+        Invalid history entries are removed from the trim mask.
+        The remaining weights are renormalized.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            trim mask, trimmed weights, threshold, ESS ratio, and final trim index.
+        tuple:
+            trim mask, normalized trimmed weights,
+            threshold, ESS ratio, and trim index.
         """
         # run trimming scan on the full weight vector      
         mask_trim, w_trim, thr, ratio, i_final = trim_weights_scan_jax(
@@ -1119,15 +1475,21 @@ def posterior_jax(
 
     def _no_trim(_):
         """
-        Function keeps all valid importance weights unchanged.
+        Keeps all valid posterior importance weights.
+
+        This branch is used when trimming is disabled.
+        It keeps the normalized weights from compute_logw_and_logz_jax.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            valid mask, untrimmed weights, default threshold, default ESS ratio, and default index.
+        tuple:
+            valid mask, untrimmed weights, default threshold,
+            default ESS ratio, and default index.
         """
         # keep all valid entries and leave normalized weights unchanged
         mask_trim = mask_valid
@@ -1148,45 +1510,53 @@ def posterior_jax(
 
     def _resample(key_in):
         """
-        Function resamples the posterior particles.
+        Resamples posterior particles from the final weights.
+
+        The branch chooses systematic or multinomial resampling.
+        It returns a full set of K resampled indices.
 
         Parameters:
         -----------
-            key_in: input random key.
+        key_in:
+            input JAX random key.
 
         Returns:
         --------
-            resampled indices, resampling status, and output key.
+        tuple:
+            resampled indices, status code, and output key.
         """
-        # SYSTEMATIC RESAMPLING
+        
         def _syst(k):
             """
-            Function applies systematic posterior resampling.
+            Applies systematic posterior resampling.
 
             Parameters:
             -----------
-                k: input random key.
+            k:
+                input JAX random key.
 
             Returns:
             --------
+            tuple:
                 resampled indices, status code, and output key.
             """
             # run systematic resampler on posterior weights
             idx, status, k_out = _systematic_resample_impl(k, weights, size=K)
             return idx.astype(jnp.int32), status.astype(jnp.int64), k_out
-
-        # MULTINOMIAL RESAMPLING
+       
         def _mult(k):
             """
-            Function applies multinomial posterior resampling.
+            Applies multinomial posterior resampling.
 
             Parameters:
             -----------
-                k: input random key.
+            k:
+                input JAX random key.
 
             Returns:
             --------
-                resampled indices, status code, and output key.
+            tuple:
+                resampled indices, zero status code, and output key.
             """
             # draw indices directly from posterior weight vector
             k_out, sub = jax.random.split(k)
@@ -1200,15 +1570,20 @@ def posterior_jax(
 
     def _no_resample(key_in):
         """
-        Function skips posterior resampling.
+        Skips posterior resampling.
+
+        The output indices are the identity order.
+        The random key is returned unchanged.
 
         Parameters:
         -----------
-            key_in: input random key.
+        key_in:
+            input JAX random key.
 
         Returns:
         --------
-            identity indices, zero status, and unchanged key.
+        tuple:
+            identity indices, zero status code, and unchanged key.
         """
         # keep original order when resampling is disabled
         idx = jnp.arange(K, dtype=jnp.int32)
