@@ -11,38 +11,47 @@ _EVALUEERR   = jnp.int32(-3)
 
 def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
     """
-    Function runs the core bisection method for one interval.
+    Runs the core bisection algorithm for one interval.
+
+    Bisection searches for a root of a function.
+    A root is a point where the function equals zero.
+
+    The method starts with an interval [a, b].
+    The function values at a and b must have opposite signs.
+    This means a root is bracketed inside the interval.
+
+    At each step, the function is evaluated at the midpoint.
+    The interval is then cut in half.
+    The algorithm stops when the interval is small enough,
+    an exact root is found, or maxiter is reached.
 
     Parameters:
     -----------
-    f: 
-        function to solve. It should return a scalar value.
-    a: 
+    f:
+        function whose root is being searched for.
+        It must return one scalar value.
+    a:
         left endpoint of the interval.
-    b: 
+    b:
         right endpoint of the interval.
-    xtol: 
-        absolute tolerance for interval width.
-    rtol: 
-        relative tolerance based on current midpoint.
-    maxiter: 
-        maximum number of loop iterations.
-    args: 
-        any extra arguments to f.
+    xtol:
+        absolute tolerance for stopping.
+        The loop can stop when the interval width is below this level.
+    rtol:
+        relative tolerance for stopping.
+        This scales the tolerance using the current midpoint.
+    maxiter:
+        maximum number of bisection iterations.
+        Must be non-negative.
+    args:
+        extra arguments passed to f.
 
     Returns:
-    -------
-    x: 
-        estimated root if valid input
-        NaN if invalid input.
-    status: 
-        integer describing success or failure.
-    it: 
-        number of iterations used.
-    funcalls: 
-        number of function calls used.
+    --------
+    tuple:
+        contains root estimate, status code, iteration count,
+        and function-call count.
     """
-    # convert inputs to JAX arrays
     a = jnp.asarray(a)
     b = jnp.asarray(b)
 
@@ -88,17 +97,23 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
 
     def cond(state):
         """
-        Function decides whether the bisection loop should continue.
+        Checks whether the bisection loop should continue.
+
+        The loop continues only when the input was valid,
+        no NaN has been seen, convergence has not happened,
+        and the maximum iteration count has not been reached.
 
         Parameters:
         -----------
-        state: 
-            tuple with current interval, function values, counters,
-            and status flags.
+        state:
+            tuple storing the current interval, function values,
+            current root estimate, counters, and status flags.
 
         Returns:
-        -------
-        Boolean value which tells whether to run another loop step.
+        --------
+        Array:
+            Boolean scalar.
+            True means another bisection step should run.
         """
         # unpack the current loop state
         left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = state
@@ -108,17 +123,23 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
 
     def body(state):
         """
-        Function performs one bisection step.
+        Performs one bisection update.
+
+        The function evaluates f at the midpoint.
+        It then keeps the half-interval that still brackets the root.
+        It also updates the iteration count and function-call count.
 
         Parameters:
         -----------
-        state: 
-            tuple with current interval, function values, counters,
-            and status flags.
+        state:
+            tuple storing the current interval, function values,
+            current root estimate, counters, and status flags.
 
         Returns:
-        -------
-        Updated state after one midpoint evaluation and interval update.
+        --------
+        tuple:
+            updated interval, function values, root estimate,
+            counters, and status flags.
         """
         # unpack the current loop state.
         left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = state
@@ -195,29 +216,48 @@ def bisect_jax(
     args=(),
 ):
     """
-    Function solves for one root on one interval using bisection.
+    Solves for one root on one interval using bisection.
+
+    The function searches for a point x where f(x) equals zero.
+    The interval endpoints must bracket the root.
+    This means f(a) and f(b) must have opposite signs,
+    unless one endpoint is already an exact root.
 
     Parameters:
     -----------
-    f: 
-        function to solve, returns a scalar value.
+    f:
+        function whose root is being searched for.
+        It must return one scalar value.
     a:
         left endpoint of the interval.
     b:
         right endpoint of the interval.
     xtol:
         absolute tolerance for stopping.
-    rtol: 
+    rtol:
         relative tolerance for stopping.
-    maxiter: 
-        maximum number of iterations.
-    args: 
+    maxiter:
+        maximum number of bisection iterations.
+        Must be non-negative.
+    args:
         extra arguments passed to f.
 
     Returns:
-    -------
-    tuple: 
-        (root, status, iterations, function_calls).
+    --------
+    tuple:
+        root:
+            estimated root.
+            It is NaN if the solve failed.
+        status:
+            integer status code.
+            0 means converged.
+            -1 means the interval did not bracket a root.
+            -2 means the method did not converge.
+            -3 means the input or function value was invalid.
+        iterations:
+            number of bisection iterations used.
+        function_calls:
+            number of function evaluations used.
     """
     return _bisect_jit(f, a, b, xtol=xtol, rtol=rtol, maxiter=maxiter, args=args)
 
@@ -226,35 +266,82 @@ def bisect_jax(
 
 def bisect_jax_batch(f, a, b, *, args=(), **kwargs):
     """
-    Function runs bisection over many intervals at once with vmap.
+    Runs bisection over many intervals at once.
+
+    This function applies bisect_jax to each pair of endpoints.
+    It uses jax.vmap, so all intervals are solved in a batched way.
+
+    Extra arguments can also be batched.
+    If an argument has at least one dimension, it is mapped over axis 0.
+    If an argument is scalar, the same value is used for all intervals.
 
     Parameters:
     -----------
-    f: 
-        function to solve.
-    a: 
-        array of left endpoints.
-    b: 
-        array of right endpoints.
-    args: 
-        extra arguments.
-    **kwargs: 
-        extra keyword arguments forwarded to bisect_jax.
+    f:
+        function whose root is being searched for.
+        It must return one scalar value for one interval input.
+    a:
+        array of left endpoints, shape (N,).
+    b:
+        array of right endpoints, shape (N,).
+    args:
+        extra arguments passed to f.
+        Each argument can be scalar or batched.
+    **kwargs:
+        extra keyword arguments passed to bisect_jax.
+        Examples include xtol, rtol, and maxiter.
 
     Returns:
-    Batched tuple of results from bisect_jax for each interval.
+    --------
+    tuple:
+        batched root estimates, status codes, iteration counts,
+        and function-call counts.
     """
     a = jnp.asarray(a)
     b = jnp.asarray(b)
 
     
     def _axis_for(arg):
+        """
+        Selects the vmap axis for one extra argument.
+
+        Batched arguments are mapped over axis 0.
+        Scalar arguments are reused for every interval.
+
+        Parameters:
+        -----------
+        arg:
+            extra argument passed to f.
+
+        Returns:
+        --------
+        int or None:
+            0 if arg is batched.
+            None if arg is scalar.
+        """
         arg = jnp.asarray(arg)
         return 0 if arg.ndim > 0 else None
 
     args_axes = tuple(_axis_for(arg) for arg in args)
 
     def solve_one(ai, bi, *args_i):
+        """
+        Solves one interval inside the batched solver.
+
+        Parameters:
+        -----------
+        ai:
+            left endpoint for one interval.
+        bi:
+            right endpoint for one interval.
+        *args_i:
+            extra arguments for this interval.
+
+        Returns:
+        --------
+        tuple:
+            result from bisect_jax for one interval.
+        """
         return bisect_jax(f, ai, bi, args=args_i, **kwargs)
 
     in_axes = (0, 0) + args_axes

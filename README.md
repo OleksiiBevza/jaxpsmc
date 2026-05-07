@@ -14,14 +14,11 @@ At the algorithmic level, `jaxpsmc` consists of the following components.
 3. **Mutation:** the current implementation mutates the active particles using a t-preconditioned Crank-Nicolson kernel in latent space. This is the stage at which local exploration occurs. It is also the stage at which preconditioning takes place: if the target can be mapped to a space with less correlated structure, even a simple local proposal can become substantially more effective. Integrating a normalizing flow for preconditioning is still work in progress, and the current implementation uses an identity flow.
 
 
+
 ## **Examples**
 ---
 
-There are two reproducible examples.
-
-1. **Numerical experiments:** this example constructs synthetic Gaussian-mixture targets with user-controlled dimension, number of mixture components, component means, component covariances, and mixture weights. The target likelihood is known exactly and can be evaluated directly, which makes the example suitable for checking whether the sampler behaves correctly on multimodal continuous distributions with nontrivial geometry.
-
-2. **Gravitational-wave validation:** this example uses LIGO detector data for the GW150914 event and sets up an inference problem with a frequency-domain waveform model, detector PSD estimation, physically structured priors, and deterministic transforms from physical parameters to an unconstrained sampling space.
+At present moment there are two reproducible examples: numerical experiments and gravitational-wave validation. To see the experiments set-up and results please visit [jaxpsmc-sampling_examples](https://github.com/jaxpsmc/jaxpsmc-sampling_examples)
 
 
 

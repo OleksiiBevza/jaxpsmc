@@ -3,41 +3,58 @@ import jax.numpy as jnp
 from jax import lax
 import jax
 jax.config.update("jax_enable_x64", True)
-print("x64 enabled?", jax.config.jax_enable_x64)
+
 
 
 
 @partial(jax.jit, static_argnames=("bins",))
 def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
     """
-    Function trims importance weights by scanning percentile thresholds.
+    Trims importance weights by scanning percentile thresholds.
+
+    The function searches for a weight threshold.
+    Weights below the threshold are dropped.
+    The remaining weights are renormalized to sum to one.
+
+    The chosen threshold should keep enough effective sample size.
+    More precisely, the function searches for a threshold where the ESS
+    after trimming is at least the requested fraction of the original ESS.
+
+    The samples argument is not used in the computation.
+    It is kept only to match the expected interface elsewhere in the code.
 
     Parameters:
     -----------
-        samples: 
-            sample index array used only to match the original interface.
-        weights: 
-            input weight array.
-        ess: 
-            target ESS ratio after trimming.
-        bins: 
-            number of percentile grid points.
+    samples:
+        sample index array.
+        This input is currently unused.
+    weights:
+        input importance weights, shape (N,).
+        They are normalized inside the function.
+    ess:
+        target ESS ratio after trimming.
+        For example, 0.99 means the trimmed weights should preserve
+        at least 99 percent of the original ESS.
+    bins:
+        number of percentile grid points used in the threshold search.
+        This is static for JAX compilation.
 
     Returns:
     --------
-        trim mask: 
-            (N,) bool
-        weights_trimmed: 
-            (N,) weights after trimming, renormalized (zeros for dropped)
-        threshold: 
-            scalar weight threshold is used here
-        ess_ratio:       
-            ess_trimmed / ess_total
-        i_final: 
-            index in percentile grid that was selected
-        
-        
-        trimmed weights, threshold, ESS ratio, and selected grid index.
+    tuple:
+        mask:
+            Boolean mask, shape (N,).
+            True means the weight was kept.
+        weights_trimmed:
+            trimmed and renormalized weights, shape (N,).
+            Dropped entries are zero.
+            Invalid input returns NaN weights.
+        threshold:
+            selected weight threshold.
+        ess_ratio:
+            ratio between trimmed ESS and original ESS.
+        i_final:
+            selected percentile-grid index.
     """
     samples = jnp.asarray(samples)
     weights = jnp.asarray(weights)
@@ -65,15 +82,29 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
 
     def stats_for_i(i):
         """
-        Function computes trimming statistics for one percentile index.
+        Computes trimming statistics for one percentile-grid index.
+
+        The index selects one percentile from the grid.
+        That percentile defines a candidate threshold.
+        The function then keeps weights above the threshold,
+        renormalizes them, and computes the ESS ratio.
 
         Parameters:
         -----------
-            i: percentile grid index.
+        i:
+            percentile-grid index.
 
         Returns:
         --------
-            threshold, trim mask, trimmed weights, and ESS ratio.
+        tuple:
+            threshold:
+                candidate weight threshold.
+            mask:
+                Boolean mask showing which weights are kept.
+            w_trim:
+                trimmed and renormalized weights.
+            ratio:
+                ESS ratio after trimming.
         """
         # current percentile: p in [0, 99]
         p = lax.dynamic_index_in_dim(percentiles, i, axis=0, keepdims=False)
@@ -106,15 +137,21 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
     # search from high percentile downward until ratio >= ess (or is zero)
     def cond(state):
         """
-        Function checks whether the threshold search should continue.
+        Checks whether the threshold search should continue.
+
+        The loop continues until a threshold is accepted.
+        It also stops when the search reaches the lowest grid index.
 
         Parameters:
         -----------
-            state: current percentile index and done flag.
+        state:
+            tuple containing the current index and a done flag.
 
         Returns:
         --------
-            boolean value that is True while the search should continue.
+        jax.Array:
+            Boolean scalar.
+            True means another search step should run.
         """
         # continue until valid threshold has been found
         i, done = state
@@ -122,15 +159,21 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
 
     def body(state):
         """
-        Function performs one threshold-search step.
+        Performs one threshold-search step.
+
+        The current threshold is tested.
+        If it preserves enough ESS, the search stops.
+        Otherwise, the search moves to the next lower percentile.
 
         Parameters:
         -----------
-            state: current percentile index and done flag.
+        state:
+            tuple containing the current index and a done flag.
 
         Returns:
         --------
-            updated percentile index and done flag.
+        tuple:
+            updated index and updated done flag.
         """
         # current search state
         i, done = state
@@ -163,15 +206,25 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
 @jax.jit
 def effective_sample_size_jax(weights):
     """
-    Function computes the effective sample size from a weight vector.
+    Computes effective sample size from importance weights.
+
+    Effective sample size measures weight concentration.
+    If all weights are equal, the ESS is close to the number of weights.
+    If one weight dominates, the ESS is close to one.
+
+    The function normalizes the weights before computing ESS.
+    Invalid total weight returns NaN.
 
     Parameters:
     -----------
-        weights: input weight array.
+    weights:
+        input weight array, shape (N,).
 
     Returns:
     --------
-        effective sample size, or NaN if the input is invalid.
+    jax.Array:
+        effective sample size.
+        Returns NaN if the total weight is invalid.
     """
     w = jnp.asarray(weights)
     wsum = jnp.sum(w)
@@ -190,21 +243,30 @@ def effective_sample_size_jax(weights):
 @jax.jit
 def unique_sample_size_jax(weights, k=-1):
     """
-    Function computes the unique sample size from a weight vector.
+    Computes the expected number of unique samples after resampling.
+
+    The formula estimates how many distinct particles would appear
+    after drawing k times with replacement from the weight distribution.
+
+    If k is negative, the function uses the number of weights N.
+    The function supports a single weight vector or batched weight vectors.
 
     Parameters:
     -----------
-        weights: input weight array with shape (N,) or (..., N).
-        k: number of draws used in the formula. If k < 0, the function uses N.
+    weights:
+        input weights, shape (N,) or (..., N).
+    k:
+        number of resampling draws.
+        If k < 0, use N, where N is the last dimension of weights.
 
     Returns:
     --------
-        unique sample size: 
-            scalar if weights is (N,), or array (...) if weights is (..., N).
-            or
-            NaN where weights are invalid (sum<=0 or non-finite).
-
-    """ 
+    jax.Array:
+        expected unique sample size.
+        Shape is scalar for input shape (N,),
+        or shape (...) for input shape (..., N).
+        Invalid total weights return NaN.
+    """
     w = jnp.asarray(weights)
     wsum = jnp.sum(w, axis=-1, keepdims=True)
 
@@ -230,21 +292,27 @@ def unique_sample_size_jax(weights, k=-1):
 @jax.jit
 def compute_ess_jax(logw):
     """
-    Function computes the ESS fraction from log-weights.
-    Compute ESS fraction = (1 / sum(w^2)) / N, with w = softmax(logw).
+    Computes the ESS fraction from log-weights.
+
+    The function first converts log-weights into normalized weights.
+    It then computes ESS and divides by the number of weights.
+    The result is therefore an ESS fraction between zero and one
+    when the input is valid.
+
+    This is useful when weights are stored in log space for stability.
 
     Parameters:
     -----------
-        logw: input log-weight array with shape (N,) or (..., N).
+    logw:
+        input log-weights, shape (N,) or (..., N).
 
     Returns:
     --------
-        ESS:
-            ess_frac: scalar if logw is (N,)
-            or
-            array (...) if logw is (..., N).
-            or
-            NaN if inputs are non-finite
+    jax.Array:
+        ESS fraction.
+        Shape is scalar for input shape (N,),
+        or shape (...) for input shape (..., N).
+        Invalid inputs return NaN.
     """
     lw = jnp.asarray(logw)
 
@@ -276,18 +344,24 @@ def compute_ess_jax(logw):
 @jax.jit
 def increment_logz_jax(logw):
     """
-    Function computes the log-sum-exp of a log-weight array.
-    logZ increment: logsumexp(logw)
+    Computes a log normalizing-constant increment from log-weights.
+
+    The function computes logsumexp(logw).
+    This is the log of the sum of exponentiated log-weights.
+    The computation subtracts the maximum log-weight first for stability.
 
     Parameters:
     -----------
-        logw: input log-weight array with shape (N,) or (..., N).
+    logw:
+        input log-weights, shape (N,) or (..., N).
 
     Returns:
     --------
-        log-sum-exp value, or NaN if the result is not finite.
-            logz_inc: scalar if logw is (N,), or array (...) if logw is (..., N).
-            NaN if inputs are all -inf
+    jax.Array:
+        log-sum-exp value.
+        Shape is scalar for input shape (N,),
+        or shape (...) for input shape (..., N).
+        Non-finite results are returned as NaN.
     """
     lw = jnp.asarray(logw)
 
@@ -312,17 +386,39 @@ _EVALUEERR  = jnp.int64(-3)
 @partial(jax.jit, static_argnames=("size",))
 def _systematic_resample_impl(key, weights, size: int):
     """
-    Function runs the core systematic resampling algorithm.
+    Runs the core systematic resampling algorithm.
+
+    Systematic resampling draws many indices from a weighted particle set.
+    It uses one random offset and an evenly spaced grid over the cumulative
+    weight distribution.
+
+    This usually has lower variance than multinomial resampling.
+    If the weights are invalid, the function returns dummy indices
+    and an error status.
 
     Parameters:
     -----------
-        key: JAX random key.
-        weights: input weight array.
-        size: number of indices to draw.
+    key:
+        JAX random key used to draw the random offset.
+    weights:
+        input particle weights, shape (N,).
+        They should be finite, non-negative, and have positive sum.
+    size:
+        number of resampled indices to draw.
+        This is static for JAX compilation.
 
     Returns:
     --------
-        resampled indices, status code, and output key.
+    tuple:
+        idx:
+            resampled indices, shape (size,).
+            Invalid weights produce index -1.
+        status:
+            status code.
+            0 means success.
+            -3 means invalid weights.
+        key_out:
+            updated JAX random key.
     """
     w = jnp.asarray(weights)
     dtype = jnp.result_type(w, jnp.float64)
@@ -353,16 +449,22 @@ def _systematic_resample_impl(key, weights, size: int):
 
 def systematic_resample_jax(weights, *, key):
     """
-    Function resamples exactly len(weights) indices by systematic resampling.
+    Resamples len(weights) indices using systematic resampling.
+
+    This is a convenience wrapper around _systematic_resample_impl.
+    The output size is set to the number of input weights.
 
     Parameters:
     -----------
-        weights: input weight array.
-        key: JAX random key.
+    weights:
+        input particle weights, shape (N,).
+    key:
+        JAX random key.
 
     Returns:
     --------
-        resampled indices, status code, and output key.
+    tuple:
+        resampled indices, status code, and updated random key.
     """
     w = jnp.asarray(weights)
     return _systematic_resample_impl(key, w, w.shape[0])
@@ -370,17 +472,24 @@ def systematic_resample_jax(weights, *, key):
 
 def systematic_resample_jax_size(weights, *, key, size: int):
     """
-    Function resamples a fixed number of indices by systematic resampling.
+    Resamples a fixed number of indices using systematic resampling.
+
+    This wrapper is used when the requested output size is not necessarily
+    equal to the number of input weights.
 
     Parameters:
     -----------
-        weights: input weight array.
-        key: JAX random key.
-        size: number of indices to draw.
+    weights:
+        input particle weights, shape (N,).
+    key:
+        JAX random key.
+    size:
+        number of indices to draw.
 
     Returns:
     --------
-        resampled indices, status code, and output key.
+    tuple:
+        resampled indices, status code, and updated random key.
     """
     w = jnp.asarray(weights)
     return _systematic_resample_impl(key, w, size)

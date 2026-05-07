@@ -35,21 +35,48 @@ def init_bounds_config_jax(
     diagonal: bool = True,
 ) -> dict[str, Array]:
     """
-    Function builds the initial scaler configuration from bounds and boundary rules.
+    Builds the initial configuration for bounded-to-unbounded scaling.
+
+    The sampler works more easily in an unconstrained space.
+    This function stores the information needed to move between
+    constrained x-space and unconstrained u-space.
+
+    The configuration contains bounds, boundary-condition masks,
+    the selected bounded transform, and placeholders for affine scaling.
+    The affine parameters are not fitted here.
+    They are filled later by fit_jax.
 
     Parameters:
     -----------
-        n_dim: number of dimensions.
-        bounds: bounds with shape (2,) or (n_dim, 2).
-        periodic: indices of periodic dimensions.
-        reflective: indices of reflective dimensions.
-        transform: bounded transform name, either "logit" or "probit".
-        scale: if True, enable affine scaling after the bounds transform.
-        diagonal: if True, use diagonal scaling instead of full covariance scaling.
+    n_dim:
+        number of dimensions.
+        Must be positive.
+    bounds:
+        lower and upper bounds.
+        Allowed shapes are (2,) for shared bounds
+        or (n_dim, 2) for dimension-specific bounds.
+        Column 0 is the lower bound.
+        Column 1 is the upper bound.
+    periodic:
+        indices of dimensions with periodic boundary conditions.
+        These dimensions wrap around their interval.
+    reflective:
+        indices of dimensions with reflective boundary conditions.
+        These dimensions bounce back into their interval.
+    transform:
+        transform used for dimensions with two finite bounds.
+        Must be "logit" or "probit".
+    scale:
+        if True, apply affine scaling after the bounds transform.
+    diagonal:
+        if True, use diagonal affine scaling.
+        If False, use full covariance scaling.
 
     Returns:
     --------
-        configuration dictionary with bounds, masks, and scaling placeholders.
+    dict[str, Array]:
+        configuration dictionary with bounds, masks,
+        transform code, scaling flags, and affine placeholders.
     """
     # n_dim is static because it defines output shapes
     checkify.check(jnp.asarray(n_dim > 0), "n_dim must be a positive integer.")
@@ -121,16 +148,24 @@ def init_bounds_config_jax(
 
 def masks_jax(low: Array, high: Array) -> dict[str, Array]:
     """
-    Function builds bound masks from lower and upper bound arrays.
+    Builds masks that describe which kind of bounds each dimension has.
+
+    A dimension can be unbounded, left-bounded, right-bounded,
+    or bounded on both sides. These masks are used to choose
+    the correct transformation for each coordinate.
 
     Parameters:
     -----------
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
 
     Returns:
     --------
-        dictionary with masks for left-bounded, right-bounded, both-bounded, and unbounded dimensions.
+    dict[str, Array]:
+        dictionary with four Boolean masks:
+        mask_left, mask_right, mask_both, and mask_none.
     """
     low = jnp.asarray(low)
     high = jnp.asarray(high)
@@ -155,16 +190,24 @@ def masks_jax(low: Array, high: Array) -> dict[str, Array]:
 
 def _create_masks_jax(n_dim: int, bounds: Array) -> dict[str, Array]:
     """
-    Function builds masks directly from the dimension count and bounds array.
+    Builds bound masks directly from a dimension count and bounds.
+
+    This is a convenience helper.
+    It first creates a bounds configuration.
+    It then extracts the four bound masks from that configuration.
 
     Parameters:
     -----------
-        n_dim: number of dimensions.
-        bounds: bounds with shape (2,) or (n_dim, 2).
+    n_dim:
+        number of dimensions.
+    bounds:
+        lower and upper bounds.
+        Allowed shapes are (2,) or (n_dim, 2).
 
     Returns:
     --------
-        dictionary with bound masks.
+    dict[str, Array]:
+        dictionary with masks for each bound type.
     """
     cfg = init_bounds_config_jax(n_dim, bounds)
     return masks_jax(cfg["low"], cfg["high"])
@@ -172,15 +215,22 @@ def _create_masks_jax(n_dim: int, bounds: Array) -> dict[str, Array]:
 
 def _inverse_none_jax(u: Array, mask_none: Array) -> tuple[Array, Array]:
     """
-    Function applies the inverse transform on unbounded dimensions.
+    Applies the inverse transform for unbounded dimensions.
+
+    Unbounded dimensions do not need a bounds transform.
+    They pass from u-space to x-space unchanged.
+    Their log-Jacobian contribution is zero.
 
     Parameters:
     -----------
-        u: unconstrained array with shape (N, D).
-        mask_none: mask for unbounded dimensions with shape (D,).
+    u:
+        unconstrained values, shape (N, D).
+    mask_none:
+        Boolean mask for unbounded dimensions, shape (D,).
 
     Returns:
     --------
+    tuple[Array, Array]:
         selected x values and zero log-Jacobian terms.
     """
     u = jnp.asarray(u)
@@ -194,16 +244,22 @@ def _inverse_none_jax(u: Array, mask_none: Array) -> tuple[Array, Array]:
 
 def _forward_none_jax(x: Array, mask_none: Array) -> Array:
     """
-    Function applies the forward transform on unbounded dimensions.
+    Applies the forward transform for unbounded dimensions.
+
+    Unbounded dimensions do not need any transformation.
+    They pass from x-space to u-space unchanged.
 
     Parameters:
     -----------
-        x: constrained array with shape (N, D).
-        mask_none: mask for unbounded dimensions with shape (D,).
+    x:
+        constrained-space values, shape (N, D).
+    mask_none:
+        Boolean mask for unbounded dimensions, shape (D,).
 
     Returns:
     --------
-        selected u values for the unbounded dimensions.
+    Array:
+        selected u values for unbounded dimensions.
     """
     x = jnp.asarray(x)
     mask_none = jnp.asarray(mask_none, dtype=bool)
@@ -219,19 +275,32 @@ def _inverse_both_jax(
     transform_id: Array,   # 0 = logit, 1 = probit
 ) -> tuple[Array, Array]:
     """
-    Function applies the inverse transform on dimensions with both finite bounds.
+    Applies the inverse transform for dimensions with two finite bounds.
+
+    These dimensions have support [low, high].
+    The inverse transform maps unconstrained u values into that interval.
+    It can use either a logit-based transform or a probit-based transform.
 
     Parameters:
     -----------
-        u: unconstrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        mask_both: mask for two-sided bounded dimensions.
-        transform_id: integer code, 0 for logit and 1 for probit.
+    u:
+        unconstrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    mask_both:
+        Boolean mask for two-sided bounded dimensions, shape (D,).
+    transform_id:
+        integer transform code.
+        0 means logit.
+        1 means probit.
 
     Returns:
     --------
-        transformed x values and diagonal log-Jacobian terms for bounded dimensions.
+    tuple[Array, Array]:
+        transformed x values and diagonal log-Jacobian terms
+        for the selected bounded dimensions.
     """
     # inputs to arrays
     u = jnp.asarray(u)
@@ -249,15 +318,21 @@ def _inverse_both_jax(
 
     def _logit_branch(op):
         """
-        Function applies the inverse logit-based bounds transform.
+        Applies the inverse logit bounded transform.
+
+        The sigmoid maps u into (0, 1).
+        The result is then stretched to [low, high].
 
         Parameters:
         -----------
-            op: tuple with selected u values and bound data.
+        op:
+            tuple with selected u values, lower bounds,
+            log spans, and spans.
 
         Returns:
         --------
-            transformed x values and log-Jacobian terms.
+        tuple[Array, Array]:
+            transformed values and log-Jacobian terms.
         """
         # define selected arrays
         u_s, low_s, log_span_s, span_s = op
@@ -270,15 +345,21 @@ def _inverse_both_jax(
 
     def _probit_branch(op):
         """
-        Function applies the inverse probit-based bounds transform.
+        Applies the inverse probit bounded transform.
+
+        The Gaussian CDF maps u into (0, 1).
+        The result is then stretched to [low, high].
 
         Parameters:
         -----------
-            op: tuple with selected u values and bound data.
+        op:
+            tuple with selected u values, lower bounds,
+            log spans, and spans.
 
         Returns:
         --------
-            transformed x values and log-Jacobian terms.
+        tuple[Array, Array]:
+            transformed values and log-Jacobian terms.
         """
         # define selected arrays
         u_s, low_s, log_span_s, span_s = op
@@ -310,20 +391,33 @@ def _forward_both_jax(
     eps: float = 1e-13,
 ) -> Array:
     """
-    Function applies the forward transform on dimensions with both finite bounds.
+    Applies the forward transform for dimensions with two finite bounds.
+
+    The forward transform maps values from [low, high] to the real line.
+    First, x is converted to a probability in (0, 1).
+    Then either logit or probit maps that probability to u-space.
 
     Parameters:
     -----------
-        x: constrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        mask_both: mask for two-sided bounded dimensions.
-        transform_id: integer code, 0 for logit and 1 for probit.
-        eps: clipping value used for numerical stability.
+    x:
+        constrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    mask_both:
+        Boolean mask for two-sided bounded dimensions, shape (D,).
+    transform_id:
+        integer transform code.
+        0 means logit.
+        1 means probit.
+    eps:
+        clipping value used to keep probabilities away from 0 and 1.
 
     Returns:
     --------
-        transformed u values for bounded dimensions.
+    Array:
+        transformed u values for two-sided bounded dimensions.
     """
     x = jnp.asarray(x)
     low = jnp.asarray(low)
@@ -344,14 +438,16 @@ def _forward_both_jax(
 
     def _logit_branch(p_in: Array) -> Array:
         """
-        Function applies the logit transform to probabilities.
+        Applies the logit transform.
 
         Parameters:
         -----------
-            p_in: probability array.
+        p_in:
+            probability values in (0, 1).
 
         Returns:
         --------
+        Array:
             logit-transformed values.
         """
         # apply logit transform: logit(p) = log(p) - log(1-p) 
@@ -359,14 +455,16 @@ def _forward_both_jax(
 
     def _probit_branch(p_in: Array) -> Array:
         """
-        Function applies the probit transform to probabilities.
+        Applies the probit transform.
 
         Parameters:
         -----------
-            p_in: probability array.
+        p_in:
+            probability values in (0, 1).
 
         Returns:
         --------
+        Array:
             probit-transformed values.
         """
         # apply inverse Gaussian CDF: probit(p) = sqrt(2) * erfinv(2p - 1)   
@@ -381,17 +479,25 @@ def _forward_both_jax(
 
 def _inverse_right_jax(u: Array, high: Array, mask_right: Array) -> tuple[Array, Array]:
     """
-    Function applies the inverse transform on dimensions with only an upper bound.
+    Applies the inverse transform for dimensions with only an upper bound.
+
+    A right-bounded dimension has support (-inf, high].
+    The inverse transform maps unconstrained u values into this support
+    using x = high - exp(u).
 
     Parameters:
     -----------
-        u: unconstrained array with shape (N, D).
-        high: upper bounds with shape (D,).
-        mask_right: mask for right-bounded dimensions.
+    u:
+        unconstrained values, shape (N, D).
+    high:
+        upper bounds, shape (D,).
+    mask_right:
+        Boolean mask for right-bounded dimensions, shape (D,).
 
     Returns:
     --------
-        transformed x values and diagonal log-Jacobian terms.
+    tuple[Array, Array]:
+        transformed x values and log-Jacobian terms.
     """
     u = jnp.asarray(u)
     high = jnp.asarray(high)
@@ -409,16 +515,23 @@ def _inverse_right_jax(u: Array, high: Array, mask_right: Array) -> tuple[Array,
 
 def _forward_right_jax(x: Array, high: Array, mask_right: Array) -> Array:
     """
-    Function applies the forward transform on dimensions with only an upper bound.
+    Applies the forward transform for dimensions with only an upper bound.
+
+    A right-bounded dimension has support (-inf, high].
+    The forward transform maps it to the real line using u = log(high - x).
 
     Parameters:
     -----------
-        x: constrained array with shape (N, D).
-        high: upper bounds with shape (D,).
-        mask_right: mask for right-bounded dimensions.
+    x:
+        constrained values, shape (N, D).
+    high:
+        upper bounds, shape (D,).
+    mask_right:
+        Boolean mask for right-bounded dimensions, shape (D,).
 
     Returns:
     --------
+    Array:
         transformed u values for right-bounded dimensions.
     """
     x = jnp.asarray(x)
@@ -436,21 +549,25 @@ def _forward_right_jax(x: Array, high: Array, mask_right: Array) -> Array:
 
 def _inverse_left_jax(u: Array, low: Array, mask_left: Array) -> tuple[Array, Array]:
     """
-    Function applies the inverse transform on dimensions with only a lower bound.
-    p = exp(u[:, mask_left])
-    return exp(u[:, mask_left]) + low[mask_left], u[:, mask_left]
-    
+    Applies the inverse transform for dimensions with only a lower bound.
+
+    A left-bounded dimension has support [low, inf).
+    The inverse transform maps unconstrained u values into this support
+    using x = exp(u) + low.
+
     Parameters:
     -----------
-        u: unconstrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        mask_left: mask for left-bounded dimensions.
+    u:
+        unconstrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    mask_left:
+        Boolean mask for left-bounded dimensions, shape (D,).
 
     Returns:
     --------
-        transformed x values and diagonal log-Jacobian terms.
-        x : Array, shape (N, K)
-        J : Array, shape (N, K)   (matches original: u[:, mask_left])
+    tuple[Array, Array]:
+        transformed x values and log-Jacobian terms.
     """
     u = jnp.asarray(u)
     low = jnp.asarray(low)
@@ -468,16 +585,23 @@ def _inverse_left_jax(u: Array, low: Array, mask_left: Array) -> tuple[Array, Ar
 
 def _forward_left_jax(x: Array, low: Array, mask_left: Array) -> Array:
     """
-    Function applies the forward transform on dimensions with only a lower bound.
+    Applies the forward transform for dimensions with only a lower bound.
+
+    A left-bounded dimension has support [low, inf).
+    The forward transform maps it to the real line using u = log(x - low).
 
     Parameters:
     -----------
-        x: constrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        mask_left: mask for left-bounded dimensions.
+    x:
+        constrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    mask_left:
+        Boolean mask for left-bounded dimensions, shape (D,).
 
     Returns:
     --------
+    Array:
         transformed u values for left-bounded dimensions.
     """
     x = jnp.asarray(x)
@@ -501,20 +625,34 @@ def _inverse_affine_jax(
     diagonal: Array | bool,   # scalar bool
 ) -> tuple[Array, Array]:
     """
-    Function applies the inverse affine scaling transform.
+    Applies the inverse affine scaling transform.
+
+    This transform undoes the fitted centering and scaling.
+    If diagonal is True, each dimension is scaled independently.
+    If diagonal is False, a full Cholesky factor is used.
 
     Parameters:
     -----------
-        u: input array with shape (N, D).
-        mu: mean vector with shape (D,).
-        sigma: diagonal scale vector with shape (D,).
-        L: Cholesky factor with shape (D, D).
-        log_det_L: log-determinant of L.
-        diagonal: if True, use diagonal scaling, otherwise use full scaling.
+    u:
+        scaled unconstrained values, shape (N, D).
+    mu:
+        fitted mean vector, shape (D,).
+    sigma:
+        fitted diagonal scale vector, shape (D,).
+        Used only when diagonal is True.
+    L:
+        fitted Cholesky factor, shape (D, D).
+        Used only when diagonal is False.
+    log_det_L:
+        log determinant of L.
+        Used only when diagonal is False.
+    diagonal:
+        Boolean flag selecting diagonal or full affine scaling.
 
     Returns:
     --------
-        transformed x array and log-determinant vector.
+    tuple[Array, Array]:
+        unscaled values and affine log-determinant vector.
     """
     u = jnp.asarray(u)
     mu = jnp.asarray(mu)
@@ -529,15 +667,17 @@ def _inverse_affine_jax(
 
     def _diag_branch(_):
         """
-        Function applies diagonal inverse affine scaling.
+        Applies diagonal inverse affine scaling.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            transformed x array and log-determinant vector.
+        tuple[Array, Array]:
+            unscaled values and log determinant.
         """
         # apply x = mu + sigma * u
         x = mu + sigma * u
@@ -546,15 +686,17 @@ def _inverse_affine_jax(
 
     def _full_branch(_):
         """
-        Function applies full inverse affine scaling.
+        Applies full inverse affine scaling.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            transformed x array and log-determinant vector.
+        tuple[Array, Array]:
+            unscaled values and log determinant.
         """
         # vectorized version of: mu + np.array([L @ ui for ui in u])
         # apply x = mu + u @ L.T.
@@ -575,19 +717,31 @@ def _forward_affine_jax(
     diagonal: Array,   # scalar bool
 ) -> Array:
     """
-    Function applies the forward affine scaling transform.
+    Applies the forward affine scaling transform.
+
+    This transform centers and scales values after the bounds transform.
+    If diagonal is True, scaling is done dimension by dimension.
+    If diagonal is False, the inverse Cholesky factor is used.
 
     Parameters:
     -----------
-        x: input array with shape (N, D).
-        mu: mean vector with shape (D,).
-        sigma: diagonal scale vector with shape (D,).
-        L_inv: inverse Cholesky factor with shape (D, D).
-        diagonal: if True, use diagonal scaling, otherwise use full scaling.
+    x:
+        unscaled values, shape (N, D).
+    mu:
+        fitted mean vector, shape (D,).
+    sigma:
+        fitted diagonal scale vector, shape (D,).
+        Used only when diagonal is True.
+    L_inv:
+        inverse Cholesky factor, shape (D, D).
+        Used only when diagonal is False.
+    diagonal:
+        Boolean flag selecting diagonal or full affine scaling.
 
     Returns:
     --------
-        transformed u array.
+    Array:
+        scaled values, shape (N, D).
     """
     x = jnp.asarray(x)
     mu = jnp.asarray(mu)
@@ -597,30 +751,34 @@ def _forward_affine_jax(
 
     def _diag_branch(_):
         """
-        Function applies diagonal forward affine scaling.
+        Applies diagonal forward affine scaling.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            transformed u array.
+        Array:
+            centered and diagonally scaled values.
         """
         # apply u = (x - mu) / sigma
         return (x - mu) / sigma
 
     def _full_branch(_):
         """
-        Function applies full forward affine scaling.
+        Applies full forward affine scaling.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            transformed u array.
+        Array:
+            centered and fully scaled values.
         """
         # vectorized version of: np.array([L_inv @ (xi - mu) for xi in x])
         # apply u = (x - mu) @ L_inv.T.
@@ -645,22 +803,39 @@ def _inverse_jax(
     transform_id: jax.Array,  # scalar int: 0=logit, 1=probit
 ) -> tuple[jax.Array, jax.Array]:
     """
-    Function applies the inverse bounds transform with fixed output shape.
+    Applies the inverse bounds transform with fixed output shape.
+
+    This function maps unconstrained u-space values into constrained x-space.
+    It handles all bound types in one static-shape calculation.
+    This is useful for JAX because the output shape does not depend
+    on how many dimensions have each bound type.
 
     Parameters:
     -----------
-        u: unconstrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        mask_none: mask for unbounded dimensions.
-        mask_left: mask for left-bounded dimensions.
-        mask_right: mask for right-bounded dimensions.
-        mask_both: mask for two-sided bounded dimensions.
-        transform_id: integer code, 0 for logit and 1 for probit.
+    u:
+        unconstrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    mask_none:
+        Boolean mask for unbounded dimensions, shape (D,).
+    mask_left:
+        Boolean mask for left-bounded dimensions, shape (D,).
+    mask_right:
+        Boolean mask for right-bounded dimensions, shape (D,).
+    mask_both:
+        Boolean mask for two-sided bounded dimensions, shape (D,).
+    transform_id:
+        integer transform code.
+        0 means logit.
+        1 means probit.
 
     Returns:
     --------
-        transformed x array and summed log-determinant vector.
+    tuple[jax.Array, jax.Array]:
+        constrained x values, shape (N, D),
+        and summed log-Jacobian values, shape (N,).
     """
     u = jnp.asarray(u)
     low = jnp.asarray(low)
@@ -734,23 +909,40 @@ def _forward_jax(
     eps: float = 1e-13,
 ) -> Array:
     """
-    Function applies the forward bounds transform with fixed output shape.
+    Applies the forward bounds transform with fixed output shape.
+
+    This function maps constrained x-space values into unconstrained u-space.
+    It handles unbounded, one-sided bounded, and two-sided bounded
+    dimensions in one static-shape calculation.
 
     Parameters:
     -----------
-        x: constrained array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        mask_none: mask for unbounded dimensions.
-        mask_left: mask for left-bounded dimensions.
-        mask_right: mask for right-bounded dimensions.
-        mask_both: mask for two-sided bounded dimensions.
-        transform_id: integer code, 0 for logit and 1 for probit.
-        eps: clipping value used for numerical stability.
+    x:
+        constrained values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    mask_none:
+        Boolean mask for unbounded dimensions, shape (D,).
+    mask_left:
+        Boolean mask for left-bounded dimensions, shape (D,).
+    mask_right:
+        Boolean mask for right-bounded dimensions, shape (D,).
+    mask_both:
+        Boolean mask for two-sided bounded dimensions, shape (D,).
+    transform_id:
+        integer transform code.
+        0 means logit.
+        1 means probit.
+    eps:
+        clipping value used for two-sided bounded dimensions.
+        It prevents logit or probit from receiving exactly 0 or 1.
 
     Returns:
     --------
-        transformed u array with shape (N, D).
+    Array:
+        unconstrained u values, shape (N, D).
     """
     x = jnp.asarray(x)
     low = jnp.asarray(low)
@@ -800,22 +992,32 @@ def _forward_jax(
 
 def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) -> tuple[Array, Array]:
     """
-    Function applies the full inverse transform, including optional affine scaling.
+    Applies the full inverse scaler transformation.
+
+    This maps u-space values back to x-space.
+    If affine scaling is enabled, the affine transform is undone first.
+    Then the bounds transform is undone.
+    The function also returns the total log-Jacobian correction.
 
     Parameters:
     -----------
-        u: unconstrained input with shape (N, D).
-        cfg: configuration dictionary with bounds and scaling values.
-             Must contain: low, high, transform_id, scale, diagonal, 
-             mu, sigma, L, log_det_L
-        masks: dictionary with bound masks. Must contain: mask_none, 
-             mask_left, mask_right, mask_both
+    u:
+        unconstrained input values, shape (N, D).
+    cfg:
+        scaler configuration dictionary.
+        It must contain bounds, transform_id, scale flag,
+        diagonal flag, and fitted affine parameters.
+    masks:
+        dictionary with bound masks.
+        It must contain mask_none, mask_left, mask_right, and mask_both.
 
     Returns:
     --------
-        transformed:
-            x : Array, shape (N, D)
-            log-determinant vector: log_det_J : Array, shape (N,)
+    tuple[Array, Array]:
+        x:
+            transformed x-space values, shape (N, D).
+        log_det_J:
+            total log-Jacobian correction, shape (N,).
     """
     u = jnp.asarray(u)
 
@@ -839,15 +1041,17 @@ def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) 
 
     def _scaled(u_in: Array) -> tuple[Array, Array]:
         """
-        Function applies inverse affine scaling and then inverse bounds transform.
+        Applies inverse affine scaling and inverse bounds transformation.
 
         Parameters:
         -----------
-            u_in: unconstrained input array.
+        u_in:
+            unconstrained input values, shape (N, D).
 
         Returns:
         --------
-            transformed x array and total log-determinant.
+        tuple[Array, Array]:
+            x-space values and total log-Jacobian correction.
         """
         # undo affine scaling, then undo bounds transform
         x1, ld1 = _inverse_affine_jax(u_in, mu, sigma, L, log_det_L, diagonal)
@@ -860,15 +1064,17 @@ def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) 
 
     def _unscaled(u_in: Array) -> tuple[Array, Array]:
         """
-        Function applies only the inverse bounds transform.
+        Applies only the inverse bounds transformation.
 
         Parameters:
         -----------
-            u_in: unconstrained input array.
+        u_in:
+            unconstrained input values, shape (N, D).
 
         Returns:
         --------
-            transformed x array and log-determinant.
+        tuple[Array, Array]:
+            x-space values and bounds-transform log-Jacobian correction.
         """
         # skip affine scaling when it is disabled
         return _inverse_jax(
@@ -890,18 +1096,32 @@ def forward_jax(
     eps: float = 1e-13,
 ) -> Array:
     """
-    Function applies the full forward transform, including optional affine scaling.
+    Applies the full forward scaler transformation.
+
+    This maps x-space values into u-space.
+    First, the bounds transform maps constrained coordinates
+    into an unconstrained representation.
+    If affine scaling is enabled, fitted centering and scaling
+    are then applied.
 
     Parameters:
     -----------
-        x: constrained input with shape (N, D).
-        cfg: configuration dictionary with bounds and scaling values.
-        masks: dictionary with bound masks.
-        eps: clipping value used for numerical stability.
+    x:
+        constrained input values, shape (N, D).
+    cfg:
+        scaler configuration dictionary.
+        It must contain bounds, transform_id, scale flag,
+        diagonal flag, and fitted affine parameters.
+    masks:
+        dictionary with bound masks.
+        It must contain mask_none, mask_left, mask_right, and mask_both.
+    eps:
+        clipping value for two-sided bounded dimensions.
 
     Returns:
     --------
-        transformed u array.
+    Array:
+        transformed u-space values, shape (N, D).
     """
     x = jnp.asarray(x)
 
@@ -920,15 +1140,17 @@ def forward_jax(
 
     def _scaled(u_in: Array) -> Array:
         """
-        Function applies the forward affine scaling.
+        Applies forward affine scaling.
 
         Parameters:
         -----------
-            u_in: bounds-transformed array.
+        u_in:
+            bounds-transformed values, shape (N, D).
 
         Returns:
         --------
-            fully transformed u array.
+        Array:
+            fully transformed u-space values.
         """
         # apply affine scaling when it is enabled
         return _forward_affine_jax(u_in, cfg["mu"], cfg["sigma"], cfg["L_inv"], diagonal)
@@ -946,18 +1168,27 @@ def forward_jax_checked(
     eps: float = 1e-13,
 ) -> Array:
     """
-    Function checks bounds and then applies the full forward transform.
+    Checks bounds and then applies the full forward scaler transform.
+
+    This function is the safer version of forward_jax.
+    It first checks that all x values lie inside the configured interval.
+    If the check passes, it maps x-space values into u-space.
 
     Parameters:
     -----------
-        x: constrained input with shape (N, D).
-        cfg: configuration dictionary with bounds and scaling values.
-        masks: dictionary with bound masks.
-        eps: clipping value used for numerical stability.
+    x:
+        constrained input values, shape (N, D).
+    cfg:
+        scaler configuration dictionary.
+    masks:
+        dictionary with bound masks.
+    eps:
+        clipping value for two-sided bounded dimensions.
 
     Returns:
     --------
-        transformed u array.
+    Array:
+        transformed u-space values, shape (N, D).
     """
     # check that x stays inside the configured bounds
     x = assert_array_within_interval(x, cfg["low"], cfg["high"], name="x")
@@ -973,19 +1204,34 @@ def fit_jax(
     jitter: float = 0.0,   # set 1e-6 if problems with Cholevsky
 ) -> dict[str, Array]:
     """
-    Function fits the affine scaling parameters after the bounds transform.
+    Fits affine scaling parameters after the bounds transform.
+
+    The function first maps x-space values through the bounds transform.
+    It then estimates affine scaling parameters in that transformed space.
+
+    If diagonal scaling is enabled, it stores a mean and per-dimension
+    standard deviation.
+    If full scaling is enabled, it stores a mean, covariance matrix,
+    Cholesky factor, inverse Cholesky factor, and log determinant.
 
     Parameters:
     -----------
-        x: constrained input with shape (N, D).
-        cfg: configuration dictionary with bounds and scaling placeholders.
-        masks: dictionary with bound masks.
-        eps: clipping value used for the bounds transform.
-        jitter: diagonal jitter added before Cholesky in the full-covariance case.
+    x:
+        constrained input values, shape (N, D).
+    cfg:
+        scaler configuration dictionary with bounds and placeholders.
+    masks:
+        dictionary with bound masks.
+    eps:
+        clipping value used during the bounds transform.
+    jitter:
+        diagonal jitter added before Cholesky factorization
+        in the full-covariance case.
 
     Returns:
     --------
-        new configuration dictionary with fitted affine parameters.
+    dict[str, Array]:
+        updated scaler configuration with fitted affine parameters.
     """
     x = jnp.asarray(x)
 
@@ -1010,15 +1256,21 @@ def fit_jax(
 
     def _diag_branch(_):
         """
-        Function fits diagonal affine scaling.
+        Fits diagonal affine scaling.
+
+        The scale is the standard deviation of each transformed dimension.
+        The covariance-related fields are set to identity placeholders.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            sigma, cov, L, L_inv, and log_det_L values for the diagonal case.
+        tuple:
+            sigma, covariance, Cholesky factor,
+            inverse Cholesky factor, and log determinant.
         """
         # use per-dimension standard deviation
         sigma = jnp.std(u, axis=0)   # ddof=0 (matches np.std default)
@@ -1030,15 +1282,22 @@ def fit_jax(
 
     def _full_branch(_):
         """
-        Function fits full affine scaling from the covariance matrix.
+        Fits full affine scaling from the covariance matrix.
+
+        The covariance is estimated from the transformed samples.
+        A Cholesky factor is then computed.
+        The inverse Cholesky factor is used by the forward transform.
 
         Parameters:
         -----------
-            _: unused operand.
+        _:
+            unused operand required by lax.cond.
 
         Returns:
         --------
-            sigma, cov, L, L_inv, and log_det_L values for the full case.
+        tuple:
+            sigma placeholder, covariance, Cholesky factor,
+            inverse Cholesky factor, and log determinant.
         """
         # compute sample covariance of transformed data:
         # np.cov(u.T) equivalent: centered.T @ centered / (N-1)
@@ -1089,25 +1348,31 @@ def apply_reflective_boundary_conditions_x_jax(
     reflective_mask: Array,
 ) -> Array:
     """
-    Function applies reflective boundary conditions to selected dimensions.
+    Applies reflective boundary conditions to selected dimensions.
 
-    For each reflective dimension i with finite bounds [low[i], high[i]],
-    values are reflected back into the interval, equivalent to repeatedly applying:
-      while x > high: x = 2*high - x
-      while x < low:  x = 2*low  - x
+    Reflective dimensions are folded back into their finite interval.
+    Values that go above the upper bound are reflected downward.
+    Values that go below the lower bound are reflected upward.
+
+    This is useful for parameters where crossing a boundary should
+    behave like bouncing off a wall.
 
     Parameters:
     -----------
-        x: input array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        reflective_mask: mask for reflective dimensions.
+    x:
+        input values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    reflective_mask:
+        Boolean mask for reflective dimensions, shape (D,).
 
     Returns:
     --------
-    array with reflected values on reflective dimensions.
-        x_ref : Array, shape (N, D)
-        Reflected x (unchanged on non-reflective dims).
+    Array:
+        values after reflective boundary handling, shape (N, D).
+        Non-reflective dimensions are unchanged.
     """
     x = jnp.asarray(x)
     low = jnp.asarray(low)
@@ -1119,15 +1384,17 @@ def apply_reflective_boundary_conditions_x_jax(
 
     def _do_reflect(x_in: Array) -> Array:
         """
-        Function reflects values back into their intervals.
+        Reflects values back into their intervals.
 
         Parameters:
         -----------
-            x_in: input array with shape (N, D).
+        x_in:
+            input values, shape (N, D).
 
         Returns:
         --------
-            reflected array.
+        Array:
+            reflected values, shape (N, D).
         """
         # expand mask across rows
         m = reflective_mask[None, :]  # (1, D)
@@ -1167,20 +1434,29 @@ def apply_periodic_boundary_conditions_x_jax(
     periodic_mask: Array,
 ) -> Array:
     """
-    Function applies periodic boundary conditions to selected dimensions.
-        while x > high: x = low + x - high   (subtract period)
-        while x < low:  x = high + x - low   (add period)
+    Applies periodic boundary conditions to selected dimensions.
+
+    Periodic dimensions wrap around their finite interval.
+    For example, a value slightly above the upper bound is moved
+    back near the lower bound.
+    This is useful for circular variables such as angles.
 
     Parameters:
     -----------
-        x: input array with shape (N, D).
-        low: lower bounds with shape (D,).
-        high: upper bounds with shape (D,).
-        periodic_mask: mask for periodic dimensions.
+    x:
+        input values, shape (N, D).
+    low:
+        lower bounds, shape (D,).
+    high:
+        upper bounds, shape (D,).
+    periodic_mask:
+        Boolean mask for periodic dimensions, shape (D,).
 
     Returns:
     --------
-        array with wrapped values on periodic dimensions.
+    Array:
+        values after periodic wrapping, shape (N, D).
+        Non-periodic dimensions are unchanged.
     """
     x = jnp.asarray(x)
     low = jnp.asarray(low)
@@ -1192,15 +1468,17 @@ def apply_periodic_boundary_conditions_x_jax(
 
     def _wrap(x_in: Array) -> Array:
         """
-        Function wraps values back into their periodic intervals.
+        Wraps periodic values back into their intervals.
 
         Parameters:
         -----------
-            x_in: input array with shape (N, D).
+        x_in:
+            input values, shape (N, D).
 
         Returns:
         --------
-            wrapped array.
+        Array:
+            wrapped values, shape (N, D).
         """
         # expand mask across rows and keep only finite intervals
         m = periodic_mask[None, :]  # (1, D)
@@ -1242,16 +1520,24 @@ def apply_boundary_conditions_x_jax(
     cfg: dict[str, Array],
 ) -> Array:
     """
-    Function applies periodic and reflective boundary conditions to x.
+    Applies configured boundary conditions to x-space values.
+
+    Periodic boundary handling is applied first.
+    Reflective boundary handling is applied second.
+    Dimensions without either rule are left unchanged.
 
     Parameters:
     -----------
-        x: input array with shape (N, D).
-        cfg: configuration dictionary with bounds and boundary masks.
+    x:
+        input values, shape (N, D).
+    cfg:
+        configuration dictionary containing low, high,
+        periodic_mask, and reflective_mask.
 
     Returns:
     --------
-        array after periodic and reflective boundary handling.
+    Array:
+        values after boundary handling, shape (N, D).
     """
     x = jnp.asarray(x)
 
@@ -1267,30 +1553,34 @@ def apply_boundary_conditions_x_jax(
 
     def _apply_periodic(x_in: Array) -> Array:
         """
-        Function applies periodic boundary handling.
+        Applies periodic boundary handling.
 
         Parameters:
         -----------
-            x_in: input array.
+        x_in:
+            input values, shape (N, D).
 
         Returns:
         --------
-            array after periodic wrapping.
+        Array:
+            periodically wrapped values.
         """
         # apply periodic boundary rule
         return apply_periodic_boundary_conditions_x_jax(x_in, low, high, periodic_mask)
 
     def _apply_reflective(x_in: Array) -> Array:
         """
-        Function applies reflective boundary handling.
+        Applies reflective boundary handling.
 
         Parameters:
         -----------
-            x_in: input array.
+        x_in:
+            input values, shape (N, D).
 
         Returns:
         --------
-            array after reflective wrapping.
+        Array:
+            reflectively corrected values.
         """
         # apply reflective boundary rule
         return apply_reflective_boundary_conditions_x_jax(x_in, low, high, reflective_mask)

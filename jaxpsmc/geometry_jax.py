@@ -19,27 +19,35 @@ from .student_jax import *
 @dataclass(frozen=True)
 class Geometry:
     """
-    Class stores fitted geometry parameters for two distributions.
+    Stores fitted geometry parameters for proposal adaptation.
+
+    The class stores two fitted shapes.
+    One shape is a normal approximation.
+    The other shape is a Student-t approximation.
+
+    These values are used later by mutation kernels.
+    The class is also registered as a JAX pytree.
+    This lets JAX pass it through jit, scan.
 
     Parameters:
     -----------
-    normal_mean: 
-        mean vector for normal fit, shape (D,).
-    normal_cov: 
-        covariance matrix for normal fit, shape (D, D).
-    t_mean: 
-        mean vector for Student-t fit, shape (D,).
-    t_cov: 
-        covariance matrix for Student-t fit, shape (D, D).
-    t_nu: 
-        degrees of freedom for Student-t fit.
+    normal_mean:
+        mean vector for the normal fit, shape (D,).
+    normal_cov:
+        covariance matrix for the normal fit, shape (D, D).
+    t_mean:
+        mean vector for the Student-t fit, shape (D,).
+    t_cov:
+        covariance matrix for the Student-t fit, shape (D, D).
+    t_nu:
+        degrees of freedom for the Student-t fit.
 
     Returns:
-    -------
-    Geometry object:
-        stores fitted normal and Student-t parameters 
-        so the code can pass them around as one JAX pytree.
-    """    
+    --------
+    Geometry:
+        stores normal and Student-t geometry parameters
+        in one JAX-compatible object.
+    """
     normal_mean: jax.Array  # (D,)
     normal_cov:  jax.Array  # (D,D)
     t_mean:      jax.Array  # (D,)
@@ -48,36 +56,45 @@ class Geometry:
 
     def tree_flatten(self):
         """
-        Function converts object into JAX pytree children.
+        Converts the Geometry object into JAX pytree children.
+
+        JAX needs this method to know which fields are arrays.
+        The returned children are the values that JAX can transform.
 
         Parameters:
         -----------
         None:
-            it uses current Geometry object.
+            this method uses the current Geometry object.
 
         Returns:
-        ---------
+        --------
         tuple:
-            with the stored arrays and auxiliary data.
+            tuple containing the array fields and auxiliary data.
+            Auxiliary data is None here.
         """
         return (self.normal_mean, self.normal_cov, self.t_mean, self.t_cov, self.t_nu), None
 
     @classmethod
     def tree_unflatten(cls, aux, children):
         """
-        Function rebuilds Geometry object from pytree children.
+        Rebuilds a Geometry object from pytree children.
+
+        JAX uses this after transforming or moving the object.
+        The auxiliary value is unused because all fields are arrays.
 
         Parameters:
         -----------
-        aux: 
-            auxiliary pytree data. It is unused here.
-        children: 
-            tuple with the stored array fields.
+        aux:
+            auxiliary pytree data.
+            It is unused here.
+        children:
+            tuple containing the stored Geometry fields.
 
         Returns:
         --------
-        new Geometry object.
-        """ 
+        Geometry:
+            rebuilt Geometry object.
+        """
         # unpack saved fields    
         nm, nc, tm, tc, tnu = children
         # rebuild dataclass
@@ -86,19 +103,24 @@ class Geometry:
     @classmethod
     def init(cls, dim: int, *, dtype=jnp.float64):
         """
-        Function creates an empty Geometry object for a given dimension.
+        Creates an initial Geometry object for a given dimension.
+
+        The means and covariances are initialized to zero.
+        The Student-t degrees of freedom are set very large.
+        A large degrees of freedom value makes the Student-t close to normal.
 
         Parameters:
         -----------
-        dim: 
+        dim:
             dimension of the parameter space.
-        dtype: 
-            numeric dtype used for arrays.
+        dtype:
+            numeric dtype used for the stored arrays.
 
         Returns:
         --------
-        Geometry object:
-            with zero means, zero covariances, and large t_nu.
+        Geometry:
+            initial Geometry object with zero means,
+            zero covariance matrices, and large Student-t degrees of freedom.
         """
         # create zero mean vectors      
         z1 = jnp.zeros((dim,), dtype=dtype)
@@ -113,21 +135,24 @@ class Geometry:
 @jax.jit
 def _cov_unweighted(theta: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, jax.Array]:
     """
-    Function computes the unweighted sample mean and covariance.
+    Computes the unweighted sample mean and covariance.
+
+    Each sample has the same importance.
+    The covariance uses the sample covariance denominator N - 1.
+    A small diagonal jitter is added for numerical stability.
 
     Parameters:
     -----------
-    theta: 
-        sample matrix with shape (N, D).
-    jitter: 
-        small value added to the diagonal for numerical stability.
+    theta:
+        sample matrix, shape (N, D).
+    jitter:
+        small value added to the covariance diagonal.
 
-    Output:
-    -------
-    mu: 
-        sample mean with shape (D,).
-    cov: 
-        sample covariance with shape (D, D).
+    Returns:
+    --------
+    Tuple[jax.Array, jax.Array]:
+        sample mean, shape (D,),
+        and sample covariance, shape (D, D).
     """
     # convert input to JAX array
     theta = jnp.asarray(theta)
@@ -151,23 +176,27 @@ def _cov_unweighted(theta: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, 
 @jax.jit
 def _cov_weighted_aweights(theta: jax.Array, weights: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, jax.Array]:
     """
-    Function computes weighted mean and covariance.
+    Computes the weighted sample mean and covariance.
+
+    Samples with larger weights influence the fit more.
+    The weights are normalized before use.
+    If the weights are invalid, the function falls back
+    to the unweighted mean and covariance.
 
     Parameters:
     -----------
-    theta: 
-        sample matrix with shape (N, D).
-    weights: 
-        nonnegative sample weights with shape (N,).
-    jitter: 
-        small value added to the diagonal for numerical stability.
+    theta:
+        sample matrix, shape (N, D).
+    weights:
+        non-negative sample weights, shape (N,).
+    jitter:
+        small value added to the covariance diagonal.
 
     Returns:
     --------
-    mu: 
-        weighted mean with shape (D,).
-    cov: 
-        weighted covariance with shape (D, D).
+    Tuple[jax.Array, jax.Array]:
+        weighted mean, shape (D,),
+        and weighted covariance, shape (D, D).
     """
     # convert inputs to JAX arrays
     theta = jnp.asarray(theta)
@@ -212,18 +241,23 @@ def _cov_weighted_aweights(theta: jax.Array, weights: jax.Array, *, jitter: jax.
 @partial(jax.jit, static_argnames=("nu_cap",))
 def _sanitize_nu(nu: jax.Array, nu_cap: float) -> jax.Array:
     """
-    Function replaces non-finite nu values with a fixed cap.
+    Replaces invalid Student-t degrees of freedom values.
+
+    The Student-t fit may return a non-finite value.
+    This function replaces that value with a fixed cap.
+    Finite values are kept unchanged.
 
     Parameters:
     -----------
-    nu: 
-        degrees of freedom value.
-    nu_cap: 
-        replacement value used when nu is not finite.
+    nu:
+        fitted degrees of freedom value.
+    nu_cap:
+        fallback value used when nu is not finite.
 
     Returns:
     --------
-        finite nu value
+    jax.Array:
+        finite degrees of freedom value.
     """
     # convert cap to same dtype as nu 
     cap = jnp.asarray(nu_cap, dtype=nu.dtype)
@@ -243,34 +277,49 @@ def geometry_fit_jax(
     jitter: float = 1e-9,
 ):
     """
-    Function fits Geometry object from sample points.
+    Fits normal and Student-t geometry from sample points.
+
+    The normal geometry is fitted from the sample mean and covariance.
+    It can use either weighted or unweighted covariance.
+
+    The Student-t geometry is fitted directly when weights are not used.
+    When weights are used, the samples are first resampled according
+    to the weights. The Student-t fit is then computed on resampled data.
+
+    The input geom is not used in the calculation.
+    It is kept in the function signature for interface consistency.
 
     Parameters:
     -----------
-    geom: 
-        current Geometry object. It is not used directly for fit, but
-        it keeps function interface consistent.
-    theta: 
-        sample matrix with shape (N, D).
-    weights: 
-        sample weights with shape (N,).
-    use_weights: 
-        boolean flag. If True, use weighted logic
-    key: 
-        JAX random key used for resampling.
-    nu_cap: 
-        upper fallback value used when t_nu is not finite.
-    jitter: 
+    geom:
+        current Geometry object.
+        It is not used directly in this fit.
+    theta:
+        sample matrix, shape (N, D).
+    weights:
+        sample weights, shape (N,).
+        Used only when use_weights is True.
+    use_weights:
+        Boolean flag.
+        If True, weighted normal statistics and resampled Student-t fit are used.
+        If False, unweighted fitting is used.
+    key:
+        JAX random key used for weighted resampling.
+    nu_cap:
+        fallback value for non-finite Student-t degrees of freedom.
+    jitter:
         small value added to covariance diagonals.
 
     Returns:
     --------
-    geom_new: 
-        fitted Geometry object.
-    key_out: 
-        output random key.
-    resample_status: 
-        status code from the resampling step.
+    tuple:
+        geom_new:
+            fitted Geometry object.
+        key_out:
+            updated JAX random key.
+        resample_status:
+            status code from the resampling step.
+            If no resampling is used, this is zero.
     """
     # convert to jax
     theta = jnp.asarray(theta)
@@ -281,30 +330,34 @@ def geometry_fit_jax(
 
     def _do_weighted(_):
         """
-        Function computes weighted normal statistics.
+        Computes weighted normal mean and covariance.
 
         Parameters:
         -----------
-        _: 
+        _:
             unused input required by lax.cond.
 
         Returns:
-            weighted mean and covariance.
+        --------
+        Tuple[jax.Array, jax.Array]:
+            weighted mean and weighted covariance.
         """
         # use weighted covariance 
         return _cov_weighted_aweights(theta, weights, jitter=jitter)
 
     def _do_unweighted(_):
         """
-        Function computes unweighted normal statistics.
+        Computes unweighted normal mean and covariance.
 
         Parameters:
         -----------
-        _: 
+        _:
             unused input required by lax.cond.
 
         Returns:
-            unweighted mean and covariance.
+        --------
+        Tuple[jax.Array, jax.Array]:
+            unweighted mean and unweighted covariance.
         """
         # use unweighted covariance
         return _cov_unweighted(theta, jitter=jitter)
@@ -316,24 +369,25 @@ def geometry_fit_jax(
 
     def _t_fit_resampled(_):
         """
-        Function fits Student-t geometry after resampling.
+        Fits Student-t geometry after weighted resampling.
+
+        The weights are normalized.
+        Systematic resampling is then used to create an unweighted sample.
+        The Student-t distribution is fitted to that resampled data.
 
         Parameters:
         -----------
-        _: 
+        _:
             unused input required by lax.cond.
 
         Returns:
-        t_mean: 
-            fitted Student-t mean.
-        t_cov: 
-            fitted Student-t covariance.
-        t_nu: 
-            fitted degrees of freedom.
-        key_out: 
-            updated random key.
-        status: 
-            resampling status code.
+        --------
+        tuple:
+            fitted Student-t mean,
+            fitted Student-t covariance,
+            cleaned degrees of freedom,
+            updated random key,
+            and resampling status code.
         """
         # normalize weights for resampling
         wsum = jnp.sum(weights)
@@ -352,25 +406,24 @@ def geometry_fit_jax(
 
     def _t_fit_direct(_):
         """
-        Function fits the Student-t geometry without resampling.
+        Fits Student-t geometry without weighted resampling.
+
+        The Student-t distribution is fitted directly to theta.
+        The random key is returned unchanged.
 
         Parameters:
         -----------
-        _: 
+        _:
             unused input required by lax.cond.
 
         Returns:
         --------
-        t_mean: 
-            fitted Student-t mean.
-        t_cov: 
-            fitted Student-t covariance.
-        t_nu: 
-            fitted and cleaned degrees of freedom.
-        key: 
-            unchanged random key.
-        status: 
-            zero status code.
+        tuple:
+            fitted Student-t mean,
+            fitted Student-t covariance,
+            cleaned degrees of freedom,
+            unchanged random key,
+            and zero status code.
         """
         # fit multivariate Student-t model directly
         t_mean, t_cov, t_nu, _info = fit_mvstud_jax(theta)

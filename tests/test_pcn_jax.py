@@ -63,6 +63,7 @@ class PcnTest(chex.TestCase):
             blobs=blobs,
             beta=jnp.array(0.5),
             loglike_fn=loglike_fn,
+            loglike_approx_fn=lambda xi: -0.5 * jnp.sum((xi - 0.5) ** 2),
             logprior_fn=logprior_fn,
             flow=self.flow,
             scaler_cfg=self.cfg,
