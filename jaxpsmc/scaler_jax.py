@@ -26,110 +26,107 @@ _DEFAULT_BOUNDS = jnp.array([jnp.inf, jnp.inf], dtype=jnp.float64)  # matches bo
 
 def init_bounds_config_jax(
     n_dim: int,
-    bounds: Array = _DEFAULT_BOUNDS,          # allowed shapes: (2,) or (n_dim, 2)
-    periodic: Array = _EMPTY_I32,             # indices, shape (k,)
-    reflective: Array = _EMPTY_I32,           # indices, shape (m,)
+    bounds: Array = _DEFAULT_BOUNDS,
+    periodic: Array = _EMPTY_I32,
+    reflective: Array = _EMPTY_I32,
     *,
-    transform: str = "probit",                # "logit" or "probit" 
+    transform: str = "probit",
     scale: bool = True,
     diagonal: bool = True,
 ) -> dict[str, Array]:
     """
     Builds the initial configuration for bounded-to-unbounded scaling.
 
-    The sampler works more easily in an unconstrained space.
-    This function stores the information needed to move between
-    constrained x-space and unconstrained u-space.
+    The sampler works in an unconstrained latent space.
+    This function stores the information needed to map between
+    bounded physical coordinates and unconstrained coordinates.
 
-    The configuration contains bounds, boundary-condition masks,
-    the selected bounded transform, and placeholders for affine scaling.
-    The affine parameters are not fitted here.
-    They are filled later by fit_jax.
+    The configuration contains lower and upper bounds, masks for
+    periodic and reflective boundary conditions, the selected bounded
+    transform, scaling flags, and placeholder affine-scaling parameters.
+
+    This function performs static Python validation.
 
     Parameters:
     -----------
     n_dim:
         number of dimensions.
-        Must be positive.
+        Must be a positive Python integer.
+
     bounds:
         lower and upper bounds.
         Allowed shapes are (2,) for shared bounds
         or (n_dim, 2) for dimension-specific bounds.
-        Column 0 is the lower bound.
-        Column 1 is the upper bound.
+        Column 0 contains lower bounds.
+        Column 1 contains upper bounds.
+
     periodic:
         indices of dimensions with periodic boundary conditions.
         These dimensions wrap around their interval.
+
     reflective:
         indices of dimensions with reflective boundary conditions.
-        These dimensions bounce back into their interval.
+        These dimensions are reflected back into their interval.
+
     transform:
         transform used for dimensions with two finite bounds.
         Must be "logit" or "probit".
+
     scale:
-        if True, apply affine scaling after the bounds transform.
+        if True, affine scaling is enabled after the bounds transform.
+
     diagonal:
-        if True, use diagonal affine scaling.
-        If False, use full covariance scaling.
+        if True, affine scaling uses per-dimension standard deviations.
+        If False, affine scaling uses a full covariance matrix.
 
     Returns:
     --------
     dict[str, Array]:
-        configuration dictionary with bounds, masks,
-        transform code, scaling flags, and affine placeholders.
+        configuration dictionary containing bounds, boundary masks,
+        transform code, scaling flags, and affine-scaling placeholders.
     """
-    # n_dim is static because it defines output shapes
-    checkify.check(jnp.asarray(n_dim > 0), "n_dim must be a positive integer.")
-    n_dim32 = jnp.asarray(n_dim, dtype=jnp.int64)
+    # static validation
+    if not isinstance(n_dim, int):
+        raise TypeError("n_dim must be a Python int.")
 
-    # validate bounds array
+    if n_dim <= 0:
+        raise ValueError("n_dim must be a positive integer.")
+
+    if transform not in ("logit", "probit"):
+        raise ValueError("transform must be 'logit' or 'probit'.")
+
     bounds = jnp.asarray(bounds, dtype=jnp.float64)
-    bounds = assert_array_float(bounds, name="bounds")
 
-    # accept one shared bound pair or one pair per dimension
-    ok_bounds_shape = jnp.asarray(
-        ((bounds.ndim == 1) & (bounds.shape == (2,))) |
-        ((bounds.ndim == 2) & (bounds.shape == (n_dim, 2)))
-    )
-    checkify.check(ok_bounds_shape, "bounds must have shape (2,) or (n_dim, 2).")
+    # shape validation is static and therefore safe under jit
+    if bounds.ndim == 1:
+        if bounds.shape != (2,):
+            raise ValueError("bounds must have shape (2,) or (n_dim, 2).")
+    elif bounds.ndim == 2:
+        if bounds.shape != (n_dim, 2):
+            raise ValueError("bounds must have shape (2,) or (n_dim, 2).")
+    else:
+        raise ValueError("bounds must have shape (2,) or (n_dim, 2).")
 
-    # distribute shared bounds to all dimensions
     bounds = jnp.broadcast_to(bounds, (n_dim, 2))
     low = bounds[:, 0]
     high = bounds[:, 1]
-    checkify.check(jnp.all(low <= high), "bounds[:,0] must be <= bounds[:,1] elementwise.")
 
-    # convert periodic and reflective indices to flat integer arrays
     periodic = jnp.asarray(periodic, dtype=jnp.int64).reshape((-1,))
     reflective = jnp.asarray(reflective, dtype=jnp.int64).reshape((-1,))
 
-    # check that all boundary indices are valid
-    checkify.check(jnp.all((periodic >= 0) & (periodic < n_dim)), "periodic indices must be in [0, n_dim).")
-    checkify.check(jnp.all((reflective >= 0) & (reflective < n_dim)), "reflective indices must be in [0, n_dim).")
-
-    # convert index lists into boolean masks
     dims = jnp.arange(n_dim, dtype=jnp.int64)
     periodic_mask = jnp.any(dims[:, None] == periodic[None, :], axis=1)
     reflective_mask = jnp.any(dims[:, None] == reflective[None, :], axis=1)
 
-    # dimension cannot be both periodic and reflective
-    checkify.check(jnp.all(~(periodic_mask & reflective_mask)),
-                   "A dimension cannot be both periodic and reflective.")
+    transform_id = jnp.asarray(transform == "probit", dtype=jnp.int64)
 
-    # transform: make it as binary logit=0, probit=1
-    is_logit = transform == "logit"     
-    is_probit = transform == "probit"
-    checkify.check(jnp.asarray(is_logit | is_probit), "transform must be 'logit' or 'probit'.")
-    transform_id = jnp.asarray(is_probit, dtype=jnp.int64)
-
-    # placeholder values for parameters learned later by fit_jax
     dtype = bounds.dtype
     nan_vec = jnp.full((n_dim,), jnp.nan, dtype=dtype)
     nan_mat = jnp.full((n_dim, n_dim), jnp.nan, dtype=dtype)
     nan_scalar = jnp.asarray(jnp.nan, dtype=dtype)
 
     return {
-        "ndim": n_dim32,
+        "ndim": jnp.asarray(n_dim, dtype=jnp.int64),
         "low": low,
         "high": high,
         "periodic_mask": periodic_mask,
