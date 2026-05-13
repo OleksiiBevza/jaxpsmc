@@ -1,99 +1,437 @@
-import unittest
+import chex
 import jax
 import jax.numpy as jnp
+import numpy as np
 from absl.testing import absltest
 
+from jaxpsmc.particles_jax import ParticlesState, ParticlesStep, init_particles_state_jax
 from jaxpsmc.prior_jax import NORMAL, Prior
 from jaxpsmc.sampler_jax import (
     IdentityBijectionJAX,
     IdentityFlowJAX,
+    RunOutputJAX,
     SamplerConfigJAX,
     SamplerJAX,
     _build_step_from_particles,
     _metric_code,
     _replace_inf_rows,
     _resample_code,
+    make_run_fn,
 )
 
 
-class SamplerTest(unittest.TestCase):
-    def test_identity_flow(self):
-        flow = IdentityFlowJAX(2)
-        bij = flow.bijection
-        u = jnp.array([[0.0, 1.0], [2.0, 3.0]])
-        x, ld1 = bij.transform_and_log_det(u)
-        u2, ld2 = bij.inverse_and_log_det(x)
-        import numpy as np
-        np.testing.assert_allclose(x, u)
-        np.testing.assert_allclose(u2, u)
-        assert ld1.shape == (2,)
-        assert ld2.shape == (2,)
+class SamplerTest(chex.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.key = jax.random.key(0)
 
-    def test_codes_and_config(self):
-        assert _metric_code("ess") == 0
-        assert _metric_code("uss") == 1
-        assert _resample_code("mult") == 0
-        assert _resample_code("syst") == 1
-        cfg = SamplerConfigJAX(n_dim=2, n_active=4, n_effective=2, n_prior=8, keep_max=4)
-        assert cfg.n_dim == 2
+    def _prior(self, dtype=jnp.float64):
+        kinds = jnp.array([NORMAL, NORMAL], dtype=jnp.int32)
+        params = jnp.array([[0.0, 1.0], [0.5, 1.5]], dtype=dtype)
+        return Prior.create(kinds, params)
 
-    def test_replace_inf_rows(self):
-        key, x, u, logdetj, logp, logl, blobs = _replace_inf_rows(
-            jax.random.key(0),
-            jnp.array([[0.0], [1.0], [2.0]]),
-            jnp.array([[0.0], [1.0], [2.0]]),
-            jnp.array([0.0, 0.0, 0.0]),
-            jnp.array([0.0, 0.0, 0.0]),
-            jnp.array([0.0, jnp.inf, 1.0]),
-            jnp.zeros((3, 0)),
-        )
-        assert jnp.isfinite(logl).all()
-        assert x.shape == (3, 1)
-        assert u.shape == (3, 1)
-        assert blobs.shape == (3, 0)
-
-    def test_build_step(self):
-        step = _build_step_from_particles(
-            u=jnp.array([[0.0], [1.0]]),
-            x=jnp.array([[2.0], [3.0]]),
-            logdetj=jnp.array([0.1, 0.2]),
-            logl=jnp.array([1.0, 2.0]),
-            logp=jnp.array([0.5, 0.6]),
-            blobs=jnp.zeros((2, 0)),
-            iter_idx=jnp.array(3),
-            beta=jnp.array(0.7),
-            logz=jnp.array(1.2),
-            calls=jnp.array(5.0),
-            steps=jnp.array(2.0),
-            efficiency=jnp.array(0.8),
-            ess=jnp.array(1.5),
-            accept=jnp.array(0.4),
-        )
-        assert step.x.shape == (2, 1)
-        assert step.logw.shape == (2,)
-        assert step.iter == 3
-
-    def test_sampler_run(self):
-        prior = Prior.create([NORMAL], [[0.0, 1.0]])
-        cfg = SamplerConfigJAX(
-            n_dim=1,
-            n_active=8,
-            n_effective=4,
-            n_prior=16,
-            n_total=5,
-            n_steps=1,
-            n_max_steps=2,
-            keep_max=8,
+    def _cfg(self, **kwargs):
+        base = dict(
+            n_dim=2,
+            n_effective=2,
+            n_active=4,
+            n_prior=4,
+            n_total=2,
+            n_steps=0,
+            n_max_steps=0,
+            proposal_scale=0.0,
+            keep_max=4,
+            trim_ess=0.99,
+            bins=16,
+            bisect_steps=8,
             preconditioned=False,
+            dynamic=False,
+            metric="ess",
+            resample="mult",
+            transform="probit",
+            blob_dim=0,
         )
+        base.update(kwargs)
+        return SamplerConfigJAX(**base)
+
+    def _like_scalar(self, x):
+        return -0.5 * jnp.sum(x * x)
+
+    def _like_blob(self, x):
+        ll = -0.5 * jnp.sum(x * x)
+        blob = jnp.array([jnp.sum(x)], dtype=x.dtype)
+        return ll, blob
+
+    def _approx(self, x):
+        return -0.25 * jnp.sum(x * x)
+
+    def _arrays(self, dtype=jnp.float64):
+        x = jnp.array(
+            [[0.0, 0.0], [1.0, 1.0], [2.0, -1.0], [-1.0, 0.5]],
+            dtype=dtype,
+        )
+        u = x + jnp.asarray(0.1, dtype=dtype)
+        logdetj = jnp.arange(4, dtype=dtype)
+        logp = -0.5 * jnp.sum(x * x, axis=1)
+        logl = jnp.array([0.0, jnp.inf, -jnp.inf, -1.0], dtype=dtype)
+        blobs = jnp.arange(4, dtype=dtype).reshape(4, 1)
+        return x, u, logdetj, logp, logl, blobs
+
+    def test_codes(self):
+        assert int(_metric_code("ess")) == 0
+        assert int(_metric_code("ESS")) == 0
+        assert int(_metric_code("uss")) == 1
+        assert int(_metric_code("USS")) == 1
+
+        assert int(_resample_code("mult")) == 0
+        assert int(_resample_code("MULT")) == 0
+        assert int(_resample_code("syst")) == 1
+        assert int(_resample_code("SYST")) == 1
+
+        with self.assertRaises(ValueError):
+            _metric_code("bad")
+        with self.assertRaises(ValueError):
+            _resample_code("bad")
+
+    def test_config(self):
+        cfg = self._cfg()
+
+        assert cfg.n_dim == 2
+        assert cfg.n_effective == 2
+        assert cfg.n_active == 4
+        assert cfg.n_prior == 4
+        assert cfg.n_total == 2
+        assert cfg.preconditioned is False
+        assert cfg.dynamic is False
+        assert cfg.metric == "ess"
+        assert cfg.resample == "mult"
+
+    def test_config_bad(self):
+        with self.assertRaises(ValueError):
+            self._cfg(n_dim=0)
+        with self.assertRaises(ValueError):
+            self._cfg(n_active=0)
+        with self.assertRaises(ValueError):
+            self._cfg(n_effective=0)
+        with self.assertRaises(ValueError):
+            self._cfg(n_prior=5)
+        with self.assertRaises(ValueError):
+            self._cfg(keep_max=0)
+
+    def test_bijection(self):
+        bij = IdentityBijectionJAX()
+        u = jnp.array([1.0, -2.0, 0.5], dtype=jnp.float32)
+
+        theta, logdet = bij.transform_and_log_det(u)
+        back, inv_logdet = bij.inverse_and_log_det(theta)
+
+        np.testing.assert_allclose(theta, u)
+        np.testing.assert_allclose(back, u)
+        np.testing.assert_allclose(logdet, 0.0)
+        np.testing.assert_allclose(inv_logdet, 0.0)
+        assert theta.dtype == u.dtype
+        assert logdet.shape == ()
+
+    def test_bijection_batch(self):
+        bij = IdentityBijectionJAX()
+        u = jnp.array([[1.0, -2.0], [0.5, 0.25]], dtype=jnp.float32)
+
+        theta, logdet = bij.transform_and_log_det(u)
+        back, inv_logdet = bij.inverse_and_log_det(theta)
+
+        np.testing.assert_allclose(theta, u)
+        np.testing.assert_allclose(back, u)
+        np.testing.assert_allclose(logdet, jnp.zeros((2,), dtype=u.dtype))
+        np.testing.assert_allclose(inv_logdet, jnp.zeros((2,), dtype=u.dtype))
+
+    def test_bijection_tree(self):
+        bij = IdentityBijectionJAX()
+        leaves, treedef = jax.tree_util.tree_flatten(bij)
+        out = jax.tree_util.tree_unflatten(treedef, leaves)
+
+        assert isinstance(out, IdentityBijectionJAX)
+        assert len(leaves) == 0
+
+    def test_flow(self):
+        flow = IdentityFlowJAX(dim=3)
+        key = jax.random.key(11)
+
+        samples = flow.sample(key, 5)
+        samples2 = flow.sample(key, 5)
+
+        assert samples.shape == (5, 3)
+        np.testing.assert_allclose(samples, samples2)
+        assert isinstance(flow.bijection, IdentityBijectionJAX)
+        assert flow.fit(jnp.ones((2, 3))) is flow
+
+    def test_flow_tree(self):
+        flow = IdentityFlowJAX(dim=7)
+        leaves, treedef = jax.tree_util.tree_flatten(flow)
+        out = jax.tree_util.tree_unflatten(treedef, leaves)
+
+        assert isinstance(out, IdentityFlowJAX)
+        assert out.dim == 7
+        assert len(leaves) == 0
+
+    def test_output_tree(self):
+        state = init_particles_state_jax(
+            max_steps=2,
+            n_particles=3,
+            n_dim=2,
+            blob_dim=1,
+            dtype=jnp.float32,
+        )
+        out = RunOutputJAX(
+            state=state,
+            logz=jnp.asarray(1.25, dtype=jnp.float32),
+            logz_err=jnp.asarray(jnp.nan, dtype=jnp.float32),
+        )
+
+        leaves, treedef = jax.tree_util.tree_flatten(out)
+        rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+
+        assert isinstance(rebuilt, RunOutputJAX)
+        assert isinstance(rebuilt.state, ParticlesState)
+        np.testing.assert_allclose(rebuilt.state.u, state.u)
+        np.testing.assert_allclose(rebuilt.logz, out.logz)
+        assert bool(jnp.isnan(rebuilt.logz_err))
+
+    @chex.all_variants(with_pmap=False)
+    def test_replace(self):
+        x, u, logdetj, logp, logl, blobs = self._arrays(dtype=jnp.float32)
+
+        key2, x2, u2, logdetj2, logp2, logl2, blobs2 = self.variant(
+            lambda key, x, u, logdetj, logp, logl, blobs: _replace_inf_rows(
+                key, x, u, logdetj, logp, logl, blobs
+            )
+        )(self.key, x, u, logdetj, logp, logl, blobs)
+
+        assert x2.shape == x.shape
+        assert u2.shape == u.shape
+        assert logdetj2.shape == logdetj.shape
+        assert logp2.shape == logp.shape
+        assert logl2.shape == logl.shape
+        assert blobs2.shape == blobs.shape
+        assert bool(jnp.all(jnp.isfinite(logl2)))
+
+        np.testing.assert_allclose(x2[0], x[0])
+        np.testing.assert_allclose(x2[3], x[3])
+        np.testing.assert_allclose(logl2[0], logl[0])
+        np.testing.assert_allclose(logl2[3], logl[3])
+        assert not np.array_equal(
+            np.asarray(jax.random.key_data(key2)),
+            np.asarray(jax.random.key_data(self.key)),
+        )
+
+        finite_x = np.asarray(
+            jnp.take(x, jnp.asarray([0, 3], dtype=jnp.int32), axis=0)
+        )
+        for row in np.asarray(x2):
+            assert np.any(np.all(np.isclose(row[None, :], finite_x), axis=1))
+
+    @chex.all_variants(with_pmap=False)
+    def test_replace_none(self):
+        x, u, logdetj, logp, _logl, blobs = self._arrays(dtype=jnp.float32)
+        logl = jnp.array([0.0, -0.5, -1.0, -1.5], dtype=jnp.float32)
+
+        key2, x2, u2, logdetj2, logp2, logl2, blobs2 = self.variant(
+            lambda key, x, u, logdetj, logp, logl, blobs: _replace_inf_rows(
+                key, x, u, logdetj, logp, logl, blobs
+            )
+        )(self.key, x, u, logdetj, logp, logl, blobs)
+
+        np.testing.assert_allclose(x2, x)
+        np.testing.assert_allclose(u2, u)
+        np.testing.assert_allclose(logdetj2, logdetj)
+        np.testing.assert_allclose(logp2, logp)
+        np.testing.assert_allclose(logl2, logl)
+        np.testing.assert_allclose(blobs2, blobs)
+        assert not np.array_equal(
+            np.asarray(jax.random.key_data(key2)),
+            np.asarray(jax.random.key_data(self.key)),
+        )
+
+    def test_step(self):
+        x, u, logdetj, logp, _logl, blobs = self._arrays(dtype=jnp.float32)
+        logl = jnp.array([0.0, -0.5, -1.0, -1.5], dtype=jnp.float32)
+
+        step = _build_step_from_particles(
+            u=u,
+            x=x,
+            logdetj=logdetj,
+            logl=logl,
+            logp=logp,
+            blobs=blobs,
+            iter_idx=jnp.asarray(3, dtype=jnp.int64),
+            beta=jnp.asarray(0.75, dtype=jnp.float32),
+            logz=jnp.asarray(-1.25, dtype=jnp.float32),
+            calls=jnp.asarray(9.0, dtype=jnp.float32),
+            steps=jnp.asarray(2.0, dtype=jnp.float32),
+            efficiency=jnp.asarray(0.4, dtype=jnp.float32),
+            ess=jnp.asarray(3.5, dtype=jnp.float32),
+            accept=jnp.asarray(0.25, dtype=jnp.float32),
+        )
+
+        assert isinstance(step, ParticlesStep)
+        np.testing.assert_allclose(step.u, u)
+        np.testing.assert_allclose(step.x, x)
+        np.testing.assert_allclose(step.logdetj, logdetj)
+        np.testing.assert_allclose(step.logl, logl)
+        np.testing.assert_allclose(step.logp, logp)
+        np.testing.assert_allclose(step.logw, jnp.zeros_like(logl))
+        np.testing.assert_allclose(step.blobs, blobs)
+        np.testing.assert_array_equal(step.iter, jnp.asarray(3, dtype=jnp.int32))
+        np.testing.assert_allclose(step.beta, 0.75)
+        np.testing.assert_allclose(step.logz, -1.25)
+        np.testing.assert_allclose(step.calls, 9.0)
+        np.testing.assert_allclose(step.steps, 2.0)
+        np.testing.assert_allclose(step.efficiency, 0.4)
+        np.testing.assert_allclose(step.ess, 3.5)
+        np.testing.assert_allclose(step.accept, 0.25)
+
+    @chex.all_variants(with_pmap=False)
+    def test_run_scalar(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=0, n_max_steps=0)
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_scalar,
+            loglike_approx_single_fn=None,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        assert isinstance(out, RunOutputJAX)
+        assert isinstance(out.state, ParticlesState)
+        assert int(out.state.t) == 1
+        assert out.state.u.shape == (1, 4, 2)
+        assert out.state.x.shape == (1, 4, 2)
+        assert out.state.blobs.shape == (1, 4, 0)
+        assert bool(jnp.all(jnp.isfinite(out.state.logl[0])))
+        assert bool(jnp.all(jnp.isfinite(out.state.logp[0])))
+        assert bool(jnp.isfinite(out.logz))
+        assert bool(jnp.isnan(out.logz_err))
+
+    @chex.all_variants(with_pmap=False)
+    def test_run_blob(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=1, n_max_steps=0)
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=None,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        assert int(out.state.t) == 1
+        assert out.state.blobs.shape == (1, 4, 1)
+        np.testing.assert_allclose(out.state.blobs[0, :, 0], jnp.sum(out.state.x[0], axis=1))
+        np.testing.assert_allclose(out.state.calls[0], 4.0)
+
+    @chex.all_variants(with_pmap=False)
+    def test_run_outer(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=1, n_max_steps=1, n_steps=0, preconditioned=False)
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=self._approx,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        assert isinstance(out, RunOutputJAX)
+        assert 1 <= int(out.state.t) <= 2
+        assert out.state.u.shape == (2, 4, 2)
+        assert out.state.blobs.shape == (2, 4, 1)
+        assert bool(jnp.all(jnp.isfinite(out.state.u[: out.state.t])))
+        assert bool(jnp.all(jnp.isfinite(out.state.x[: out.state.t])))
+        assert bool(jnp.isfinite(out.logz))
+
+    def test_sampler_init(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=0, n_max_steps=0)
+
+        sampler = SamplerJAX(prior, self._like_scalar, cfg)
+
+        assert sampler.prior is prior
+        assert sampler.cfg is cfg
+        assert isinstance(sampler.flow, IdentityFlowJAX)
+
+    def test_sampler_da_requires_approx(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(delayed_acceptance=True, blob_dim=0, n_max_steps=0)
+
+        with self.assertRaises(ValueError):
+            SamplerJAX(prior, self._like_scalar, cfg)
+
+    def test_sampler_da_init(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(delayed_acceptance=True, blob_dim=0, n_max_steps=0)
+
         sampler = SamplerJAX(
             prior,
-            lambda x: jnp.array(-0.5 * jnp.sum((x - 0.2) ** 2), dtype=jnp.float64),
+            self._like_scalar,
             cfg,
+            loglike_approx_single_fn=self._approx,
         )
-        out = sampler.run(jax.random.key(0))
-        assert out.state.t > 0
-        assert jnp.isfinite(out.logz)
+
+        assert isinstance(sampler.flow, IdentityFlowJAX)
+
+    @chex.all_variants(with_pmap=False)
+    def test_sampler_run(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=0, n_max_steps=0)
+        sampler = SamplerJAX(prior, self._like_scalar, cfg)
+
+        out = self.variant(lambda key: sampler.run(key, n_total=3))(self.key)
+
+        assert isinstance(out, RunOutputJAX)
+        assert int(out.state.t) == 1
+        assert out.state.u.shape == (1, 4, 2)
+        assert out.state.blobs.shape == (1, 4, 0)
+        assert bool(jnp.isfinite(out.logz))
+
+    def test_repro(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=1, n_max_steps=0)
+        sampler = SamplerJAX(prior, self._like_blob, cfg)
+
+        out1 = sampler.run(self.key)
+        out2 = sampler.run(self.key)
+
+        np.testing.assert_allclose(out1.state.u, out2.state.u)
+        np.testing.assert_allclose(out1.state.x, out2.state.x)
+        np.testing.assert_allclose(out1.state.logl, out2.state.logl)
+        np.testing.assert_allclose(out1.state.logp, out2.state.logp)
+        np.testing.assert_allclose(out1.state.blobs, out2.state.blobs)
+        np.testing.assert_allclose(out1.logz, out2.logz)
+
+    @chex.all_variants(with_pmap=False)
+    def test_dtype(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(blob_dim=1, n_max_steps=0)
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=None,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+        expected_dtype = jnp.result_type(prior.params, jnp.float64)
+
+        assert out.state.u.dtype == expected_dtype
+        assert out.state.x.dtype == expected_dtype
+        assert out.state.logl.dtype == expected_dtype
+        assert out.state.logp.dtype == expected_dtype
+        assert out.state.blobs.dtype == expected_dtype
+        assert out.logz.dtype == expected_dtype
+        assert out.logz_err.dtype == expected_dtype
 
 
 if __name__ == "__main__":

@@ -170,7 +170,7 @@ def _support_bounds(kind: jnp.ndarray, params: jnp.ndarray) -> jnp.ndarray:
             array [-inf, inf].
         """
         # normal distribution is supported on the whole real line
-        return jnp.array([-jnp.inf, jnp.inf])
+        return jnp.asarray([-jnp.inf, jnp.inf], dtype=_p.dtype)
 
     def uniform_bounds(p):
         """
@@ -189,7 +189,7 @@ def _support_bounds(kind: jnp.ndarray, params: jnp.ndarray) -> jnp.ndarray:
             array [low, high].
         """
         # uniform distribution is supported only on [low, high]
-        return jnp.array([p[0], p[1]])
+        return jnp.asarray([p[0], p[1]], dtype=p.dtype)
 
     return lax.switch(kind, [normal_bounds, uniform_bounds], params)
 
