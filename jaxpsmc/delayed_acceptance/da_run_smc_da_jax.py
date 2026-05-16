@@ -14,6 +14,7 @@ from ..sampler_helper_jax import (
     not_termination_jax,
     resample_particles_jax,
     reweight_step_jax,
+    reweight_step_persistent_jax,
 )
 
 
@@ -164,6 +165,7 @@ def _step_mutated_particles_jax(
         "bins",
         "bisect_steps",
         "trim_ess",
+        "sampling_mode",
         "mutation_fn",
         "loglike_single_fn",
         "logprior_fn",
@@ -187,6 +189,7 @@ def smc_da_step_jax(
     bins: int,
     bisect_steps: int,
     trim_ess: float,
+    sampling_mode: str = "truncated_persistent",
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
@@ -304,7 +307,17 @@ def smc_da_step_jax(
         """
         key_c, state_c, cur_c, geom_c, n_eff_c, it_c = op
 
-        cur_rw, n_eff_new, rw_stats = reweight_step_jax(
+        sampling_mode_l = str(sampling_mode).lower()
+        if sampling_mode_l == "persistent":
+            reweight_fn = reweight_step_persistent_jax
+        elif sampling_mode_l == "truncated_persistent":
+            reweight_fn = reweight_step_jax
+        else:
+            raise ValueError(
+                "sampling_mode must be 'persistent' or 'truncated_persistent'."
+            )
+
+        cur_rw, n_eff_new, rw_stats = reweight_fn(
             state_c,
             n_eff_c,
             metric_id,
@@ -481,6 +494,7 @@ def smc_da_step_jax(
         "keep_max",
         "bins",
         "bisect_steps",
+        "sampling_mode",
         "trim_ess",
         "mutation_fn",
         "loglike_single_fn",
@@ -506,6 +520,7 @@ def run_smc_da_scan_jax(
     bins: int,
     bisect_steps: int,
     trim_ess: float,
+    sampling_mode: str = "truncated_persistent",    
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
@@ -622,6 +637,7 @@ def run_smc_da_scan_jax(
             bins=bins,
             bisect_steps=bisect_steps,
             trim_ess=trim_ess,
+            sampling_mode=sampling_mode,
             flow=flow,
             scaler_cfg=scaler_cfg,
             scaler_masks=scaler_masks,
