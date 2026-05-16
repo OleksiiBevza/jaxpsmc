@@ -403,6 +403,13 @@ class SamplerConfigJAX:
         If this is 0.0 or None, the sampler uses 2.38 / sqrt(D).
     delayed_acceptance:
         if True, use delayed-acceptance logic in the mutation kernel.
+    sampling_mode:
+        Persistent sampling mode.
+        Use "persistent" for exact paper-style persistent sampling.
+        Use "truncated_persistent" for the memory-bounded variant that
+        computes persistent weights over all history and then keeps only
+        the strongest keep_max candidates before geometry fitting and
+        resampling.
     da_c_const:
         conservative delayed-acceptance clipping constant.
         It must be positive.
@@ -471,6 +478,8 @@ class SamplerConfigJAX:
     trim_ess: float = 0.99
     bins: int = 1000
     bisect_steps: int = 32
+    # persistent reweighting mode
+    sampling_mode: str = "truncated_persistent"
 
     # resampling options: ess or uss and syst or mult
     preconditioned: bool = True
@@ -522,6 +531,11 @@ class SamplerConfigJAX:
         # keep limit must also be positive.
         if self.keep_max <= 0:
             raise ValueError("keep_max must be positive.")
+        sampling_mode_l = str(self.sampling_mode).lower()
+        if sampling_mode_l not in ("persistent", "truncated_persistent"):
+            raise ValueError(
+                "sampling_mode must be 'persistent' or 'truncated_persistent'."
+            )
 
 
 @jax.tree_util.register_pytree_node_class
@@ -927,6 +941,17 @@ def make_run_fn(
 
     # read fixed blob size from config
     blob_dim = int(cfg.blob_dim)
+
+    sampling_mode = str(cfg.sampling_mode).lower()
+    if sampling_mode == "persistent":
+        reweight_fn = reweight_step_persistent_jax
+    elif sampling_mode == "truncated_persistent":
+        reweight_fn = reweight_step_jax
+    else:
+        raise ValueError(
+            "sampling_mode must be 'persistent' or 'truncated_persistent'."
+        )
+
 
     def loglike_wrapped(x: Array) -> Tuple[Array, Array]:
         """
@@ -1334,8 +1359,8 @@ def make_run_fn(
             # unpack current loop state
             key_c, state_c, cur_c, geom_c, n_eff_c2, it = carry
 
-            # reweight history and keep the highest weight particles
-            cur_rw, n_eff_new, stats = reweight_step_jax(
+            # reweight persistent history according to the selected sampling mode
+            cur_rw, n_eff_new, stats = reweight_fn(
                 state_c,
                 n_eff_c2,
                 metric_id,

@@ -149,36 +149,20 @@ class RunSMCDATest(chex.TestCase):
             iteration=jnp.asarray(0, dtype=jnp.int32),
         )
 
-    def _kwargs(self, n_outer_max_steps=3, n_mutation_steps=2):
-        return dict(
-            n_total=jnp.asarray(20.0),
-            metric_id=jnp.asarray(0, dtype=jnp.int32),
-            dynamic=jnp.asarray(False),
-            n_active=self.n_active,
-            n_outer_max_steps=n_outer_max_steps,
-            n_mutation_max_steps=4,
-            n_mutation_steps=n_mutation_steps,
-            n_active_i32=jnp.asarray(self.n_active, dtype=jnp.int32),
-            dynamic_ratio=jnp.asarray(1.0),
-            resample_code=jnp.asarray(1, dtype=jnp.int32),
-            use_preconditioned_pcn=jnp.asarray(False),
-            keep_max=self.keep_max,
-            bins=32,
-            bisect_steps=16,
-            trim_ess=0.95,
-            flow=self.flow,
-            scaler_cfg=self.cfg,
-            scaler_masks=self.masks,
-            mutation_fn=_fake_mutate,
-            loglike_single_fn=_loglike,
-            logprior_fn=_logprior,
-        )
-
-    def _kwargs(self, n_outer_max_steps=3, n_mutation_steps=2):
+    def _kwargs(
+        self,
+        n_outer_max_steps=3,
+        n_mutation_steps=2,
+        *,
+        sampling_mode="truncated_persistent",
+        keep_max=None,
+        trim_ess=0.95,
+        dynamic=False,
+    ):
         return dict(
             n_total=jnp.asarray(20.0, dtype=self.dtype),
             metric_id=jnp.asarray(0, dtype=jnp.int32),
-            dynamic=jnp.asarray(False),
+            dynamic=jnp.asarray(dynamic),
             n_active=self.n_active,
             n_outer_max_steps=n_outer_max_steps,
             n_mutation_max_steps=4,
@@ -187,10 +171,11 @@ class RunSMCDATest(chex.TestCase):
             dynamic_ratio=jnp.asarray(1.0, dtype=self.dtype),
             resample_code=jnp.asarray(1, dtype=jnp.int32),
             use_preconditioned_pcn=jnp.asarray(False),
-            keep_max=self.keep_max,
+            keep_max=self.keep_max if keep_max is None else int(keep_max),
             bins=32,
             bisect_steps=16,
-            trim_ess=0.95,
+            trim_ess=float(trim_ess),
+            sampling_mode=str(sampling_mode),
             flow=self.flow,
             scaler_cfg=self.cfg,
             scaler_masks=self.masks,
@@ -198,6 +183,46 @@ class RunSMCDATest(chex.TestCase):
             loglike_single_fn=_loglike,
             logprior_fn=_logprior,
         )
+    
+    def _assert_active_step_output(
+        self,
+        *,
+        carry0,
+        carry1,
+        stats,
+        expected_steps,
+    ):
+        assert bool(stats.active)
+        assert int(carry1.iteration) == int(carry0.iteration) + 1
+        assert int(carry1.state.t) == int(carry0.state.t) + 1
+
+        assert carry1.current_particles["u"].shape == (self.n_active, self.n_dim)
+        assert carry1.current_particles["x"].shape == (self.n_active, self.n_dim)
+        assert carry1.current_particles["logdetj"].shape == (self.n_active,)
+        assert carry1.current_particles["logl"].shape == (self.n_active,)
+        assert carry1.current_particles["logp"].shape == (self.n_active,)
+        assert carry1.current_particles["blobs"].shape == (self.n_active, 0)
+
+        assert bool(jnp.all(jnp.isfinite(carry1.current_particles["u"])))
+        assert bool(jnp.all(jnp.isfinite(carry1.current_particles["x"])))
+        assert bool(jnp.all(jnp.isfinite(carry1.current_particles["logl"])))
+        assert bool(jnp.all(jnp.isfinite(carry1.current_particles["logp"])))
+
+        np.testing.assert_allclose(stats.accept, 0.75)
+        assert int(stats.steps) == int(expected_steps)
+        np.testing.assert_allclose(
+            carry1.current_particles["proposal_scale"],
+            0.21,
+            rtol=1e-6,
+            atol=1e-6,
+        )
+        np.testing.assert_allclose(stats.calls, carry1.current_particles["calls"])
+
+        assert bool(jnp.isfinite(stats.beta))
+        assert bool(jnp.isfinite(stats.logz))
+        assert bool(jnp.isfinite(stats.ess))
+        assert bool(jnp.isfinite(carry1.current_particles["beta"]))
+        assert bool(jnp.isfinite(carry1.current_particles["calls"]))
 
     def test_record(self):
         mutated = {
@@ -256,35 +281,85 @@ class RunSMCDATest(chex.TestCase):
         np.testing.assert_allclose(stats.calls, carry0.current_particles["calls"])
 
     @chex.all_variants(with_pmap=False)
-    def test_step(self):
+    def test_step_truncated_persistent(self):
         carry0 = self._carry(beta=0.5)
 
         carry1, stats = self.variant(
             lambda c: smc_da_step_jax(
                 c,
-                **self._kwargs(n_outer_max_steps=3, n_mutation_steps=2),
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=2,
+                    sampling_mode="truncated_persistent",
+                ),
             )
         )(carry0)
 
-        assert bool(stats.active)
-        assert int(carry1.iteration) == int(carry0.iteration) + 1
-        assert int(carry1.state.t) == int(carry0.state.t) + 1
-
-        assert carry1.current_particles["x"].shape == (self.n_active, self.n_dim)
-        assert carry1.current_particles["logl"].shape == (self.n_active,)
-        assert carry1.current_particles["blobs"].shape == (self.n_active, 0)
-
-        np.testing.assert_allclose(stats.accept, 0.75)
-        assert int(stats.steps) == 2
-        np.testing.assert_allclose(
-            carry1.current_particles["proposal_scale"],
-            0.21,
-            rtol=1e-6,
+        self._assert_active_step_output(
+            carry0=carry0,
+            carry1=carry1,
+            stats=stats,
+            expected_steps=2,
         )
-        np.testing.assert_allclose(stats.calls, carry1.current_particles["calls"])
-        assert jnp.isfinite(stats.beta)
-        assert jnp.isfinite(stats.logz)
-        assert jnp.isfinite(stats.ess)
+
+    @chex.all_variants(with_pmap=False)
+    def test_step_persistent(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry1, stats = self.variant(
+            lambda c: smc_da_step_jax(
+                c,
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=2,
+                    sampling_mode="persistent",
+                ),
+            )
+        )(carry0)
+
+        self._assert_active_step_output(
+            carry0=carry0,
+            carry1=carry1,
+            stats=stats,
+            expected_steps=2,
+        )
+
+    @chex.all_variants(with_pmap=False)
+    def test_step_persistent_with_small_keep_max(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry1, stats = self.variant(
+            lambda c: smc_da_step_jax(
+                c,
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=2,
+                    sampling_mode="persistent",
+                    keep_max=1,
+                    trim_ess=0.10,
+                ),
+            )
+        )(carry0)
+
+        self._assert_active_step_output(
+            carry0=carry0,
+            carry1=carry1,
+            stats=stats,
+            expected_steps=2,
+        )
+
+    def test_step_rejects_invalid_sampling_mode(self):
+        carry0 = self._carry(beta=0.5)
+
+        with self.assertRaises(ValueError):
+            smc_da_step_jax(
+                carry0,
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=2,
+                    sampling_mode="bad",
+                ),
+            )
 
     @chex.all_variants(with_pmap=False)
     def test_scan(self):
@@ -316,6 +391,154 @@ class RunSMCDATest(chex.TestCase):
         np.testing.assert_allclose(stats.accept[0], 0.75)
         assert int(stats.steps[1]) == 0
         assert int(stats.steps[2]) == 0
+
+    @chex.all_variants(with_pmap=False)
+    def test_scan_truncated_persistent(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry1, stats = self.variant(
+            lambda c: run_smc_da_scan_jax(
+                c,
+                n_scan_steps=3,
+                **self._kwargs(
+                    n_outer_max_steps=1,
+                    n_mutation_steps=1,
+                    sampling_mode="truncated_persistent",
+                ),
+            )
+        )(carry0)
+
+        assert int(carry1.iteration) == 1
+        assert int(carry1.state.t) == int(carry0.state.t) + 1
+
+        np.testing.assert_array_equal(
+            stats.active,
+            jnp.array([True, False, False]),
+        )
+        assert stats.beta.shape == (3,)
+        assert stats.logz.shape == (3,)
+        assert stats.ess.shape == (3,)
+        assert stats.accept.shape == (3,)
+        assert stats.steps.shape == (3,)
+        assert stats.calls.shape == (3,)
+
+        assert int(stats.steps[0]) == 1
+        np.testing.assert_allclose(stats.accept[0], 0.75)
+        assert int(stats.steps[1]) == 0
+        assert int(stats.steps[2]) == 0
+
+    @chex.all_variants(with_pmap=False)
+    def test_scan_persistent(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry1, stats = self.variant(
+            lambda c: run_smc_da_scan_jax(
+                c,
+                n_scan_steps=3,
+                **self._kwargs(
+                    n_outer_max_steps=1,
+                    n_mutation_steps=1,
+                    sampling_mode="persistent",
+                ),
+            )
+        )(carry0)
+
+        assert int(carry1.iteration) == 1
+        assert int(carry1.state.t) == int(carry0.state.t) + 1
+
+        np.testing.assert_array_equal(
+            stats.active,
+            jnp.array([True, False, False]),
+        )
+        assert stats.beta.shape == (3,)
+        assert stats.logz.shape == (3,)
+        assert stats.ess.shape == (3,)
+        assert stats.accept.shape == (3,)
+        assert stats.steps.shape == (3,)
+        assert stats.calls.shape == (3,)
+
+        assert int(stats.steps[0]) == 1
+        np.testing.assert_allclose(stats.accept[0], 0.75)
+        assert int(stats.steps[1]) == 0
+        assert int(stats.steps[2]) == 0
+        assert bool(jnp.isfinite(stats.beta[0]))
+        assert bool(jnp.isfinite(stats.logz[0]))
+        assert bool(jnp.isfinite(stats.ess[0]))
+
+    @chex.all_variants(with_pmap=False)
+    def test_scan_persistent_with_small_keep_max(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry1, stats = self.variant(
+            lambda c: run_smc_da_scan_jax(
+                c,
+                n_scan_steps=3,
+                **self._kwargs(
+                    n_outer_max_steps=1,
+                    n_mutation_steps=1,
+                    sampling_mode="persistent",
+                    keep_max=1,
+                    trim_ess=0.10,
+                ),
+            )
+        )(carry0)
+
+        assert int(carry1.iteration) == 1
+        assert int(carry1.state.t) == int(carry0.state.t) + 1
+        np.testing.assert_array_equal(
+            stats.active,
+            jnp.array([True, False, False]),
+        )
+        assert int(stats.steps[0]) == 1
+        assert bool(jnp.isfinite(stats.beta[0]))
+        assert bool(jnp.isfinite(stats.logz[0]))
+        assert bool(jnp.isfinite(stats.ess[0]))
+
+    @chex.all_variants(with_pmap=False)
+    def test_persistent_and_truncated_both_produce_valid_diagnostics(self):
+        carry0 = self._carry(beta=0.5)
+
+        carry_trunc, stats_trunc = self.variant(
+            lambda c: smc_da_step_jax(
+                c,
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=1,
+                    sampling_mode="truncated_persistent",
+                ),
+            )
+        )(carry0)
+
+        carry_persist, stats_persist = self.variant(
+            lambda c: smc_da_step_jax(
+                c,
+                **self._kwargs(
+                    n_outer_max_steps=3,
+                    n_mutation_steps=1,
+                    sampling_mode="persistent",
+                    keep_max=1,
+                    trim_ess=0.10,
+                ),
+            )
+        )(carry0)
+
+        self._assert_active_step_output(
+            carry0=carry0,
+            carry1=carry_trunc,
+            stats=stats_trunc,
+            expected_steps=1,
+        )
+        self._assert_active_step_output(
+            carry0=carry0,
+            carry1=carry_persist,
+            stats=stats_persist,
+            expected_steps=1,
+        )
+
+        assert carry_trunc.current_particles["u"].shape == carry_persist.current_particles["u"].shape
+        assert stats_trunc.beta.shape == stats_persist.beta.shape
+        assert stats_trunc.logz.shape == stats_persist.logz.shape
+        assert stats_trunc.ess.shape == stats_persist.ess.shape
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ class SamplerTest(chex.TestCase):
         kinds = jnp.array([NORMAL, NORMAL], dtype=jnp.int32)
         params = jnp.array([[0.0, 1.0], [0.5, 1.5]], dtype=dtype)
         return Prior.create(kinds, params)
-
+   
     def _cfg(self, **kwargs):
         base = dict(
             n_dim=2,
@@ -44,6 +44,7 @@ class SamplerTest(chex.TestCase):
             trim_ess=0.99,
             bins=16,
             bisect_steps=8,
+            sampling_mode="truncated_persistent",
             preconditioned=False,
             dynamic=False,
             metric="ess",
@@ -77,6 +78,27 @@ class SamplerTest(chex.TestCase):
         blobs = jnp.arange(4, dtype=dtype).reshape(4, 1)
         return x, u, logdetj, logp, logl, blobs
 
+    def _assert_valid_run_output(self, out, *, max_steps, n_active, n_dim, blob_dim):
+        assert isinstance(out, RunOutputJAX)
+        assert isinstance(out.state, ParticlesState)
+
+        t = int(out.state.t)
+        assert 1 <= t <= max_steps
+
+        assert out.state.u.shape == (max_steps, n_active, n_dim)
+        assert out.state.x.shape == (max_steps, n_active, n_dim)
+        assert out.state.logdetj.shape == (max_steps, n_active)
+        assert out.state.logl.shape == (max_steps, n_active)
+        assert out.state.logp.shape == (max_steps, n_active)
+        assert out.state.blobs.shape == (max_steps, n_active, blob_dim)
+
+        assert bool(jnp.all(jnp.isfinite(out.state.u[:t])))
+        assert bool(jnp.all(jnp.isfinite(out.state.x[:t])))
+        assert bool(jnp.all(jnp.isfinite(out.state.logl[:t])))
+        assert bool(jnp.all(jnp.isfinite(out.state.logp[:t])))
+        assert bool(jnp.all(jnp.isfinite(out.logz)))
+        assert bool(jnp.isnan(out.logz_err))
+
     def test_codes(self):
         assert int(_metric_code("ess")) == 0
         assert int(_metric_code("ESS")) == 0
@@ -105,6 +127,17 @@ class SamplerTest(chex.TestCase):
         assert cfg.dynamic is False
         assert cfg.metric == "ess"
         assert cfg.resample == "mult"
+        assert cfg.sampling_mode == "truncated_persistent" 
+
+    def test_config_sampling_mode_persistent(self):
+        cfg = self._cfg(sampling_mode="persistent")
+
+        assert cfg.sampling_mode == "persistent"
+
+    def test_config_sampling_mode_truncated_persistent(self):
+        cfg = self._cfg(sampling_mode="truncated_persistent")
+
+        assert cfg.sampling_mode == "truncated_persistent"      
 
     def test_config_bad(self):
         with self.assertRaises(ValueError):
@@ -117,6 +150,8 @@ class SamplerTest(chex.TestCase):
             self._cfg(n_prior=5)
         with self.assertRaises(ValueError):
             self._cfg(keep_max=0)
+        with self.assertRaises(ValueError):
+            self._cfg(sampling_mode="bad")        
 
     def test_bijection(self):
         bij = IdentityBijectionJAX()
@@ -352,6 +387,116 @@ class SamplerTest(chex.TestCase):
         assert bool(jnp.all(jnp.isfinite(out.state.x[: out.state.t])))
         assert bool(jnp.isfinite(out.logz))
 
+    @chex.all_variants(with_pmap=False)
+    def test_run_outer_truncated_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="truncated_persistent",
+            blob_dim=1,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=4,
+            preconditioned=False,
+            dynamic=False,
+        )
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=self._approx,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        # max_steps_total = n_prior // n_active + n_max_steps = 2 + 1
+        self._assert_valid_run_output(
+            out,
+            max_steps=3,
+            n_active=4,
+            n_dim=2,
+            blob_dim=1,
+        )
+        assert cfg.sampling_mode == "truncated_persistent"
+
+    @chex.all_variants(with_pmap=False)
+    def test_run_outer_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            blob_dim=1,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=4,
+            preconditioned=False,
+            dynamic=False,
+        )
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=self._approx,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        # max_steps_total = n_prior // n_active + n_max_steps = 2 + 1
+        self._assert_valid_run_output(
+            out,
+            max_steps=3,
+            n_active=4,
+            n_dim=2,
+            blob_dim=1,
+        )
+        assert cfg.sampling_mode == "persistent"
+
+    @chex.all_variants(with_pmap=False)
+    def test_run_outer_persistent_ignores_small_keep_max(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            blob_dim=1,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=1,
+            trim_ess=0.10,
+            preconditioned=False,
+            dynamic=False,
+        )
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=self._approx,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+
+        self._assert_valid_run_output(
+            out,
+            max_steps=3,
+            n_active=4,
+            n_dim=2,
+            blob_dim=1,
+        )
+        assert int(out.state.t) >= 2
+        assert bool(jnp.isfinite(out.logz))
+
+
+
+
+
     def test_sampler_init(self):
         prior = self._prior(dtype=jnp.float64)
         cfg = self._cfg(blob_dim=0, n_max_steps=0)
@@ -382,6 +527,26 @@ class SamplerTest(chex.TestCase):
 
         assert isinstance(sampler.flow, IdentityFlowJAX)
 
+    def test_sampler_da_init_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            delayed_acceptance=True,
+            blob_dim=0,
+            n_max_steps=0,
+        )
+
+        sampler = SamplerJAX(
+            prior,
+            self._like_scalar,
+            cfg,
+            loglike_approx_single_fn=self._approx,
+        )
+
+        assert isinstance(sampler.flow, IdentityFlowJAX)
+        assert sampler.cfg.sampling_mode == "persistent"
+        assert sampler.cfg.delayed_acceptance is True
+
     @chex.all_variants(with_pmap=False)
     def test_sampler_run(self):
         prior = self._prior(dtype=jnp.float64)
@@ -395,6 +560,40 @@ class SamplerTest(chex.TestCase):
         assert out.state.u.shape == (1, 4, 2)
         assert out.state.blobs.shape == (1, 4, 0)
         assert bool(jnp.isfinite(out.logz))
+
+    @chex.all_variants(with_pmap=False)
+    def test_sampler_run_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            blob_dim=0,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=1,
+            preconditioned=False,
+            dynamic=False,
+        )
+        sampler = SamplerJAX(
+            prior,
+            self._like_scalar,
+            cfg,
+            loglike_approx_single_fn=self._approx,
+        )
+
+        out = self.variant(lambda key: sampler.run(key, n_total=2))(self.key)
+
+        self._assert_valid_run_output(
+            out,
+            max_steps=3,
+            n_active=4,
+            n_dim=2,
+            blob_dim=0,
+        )
+        assert sampler.cfg.sampling_mode == "persistent"
 
     def test_repro(self):
         prior = self._prior(dtype=jnp.float64)
@@ -411,6 +610,39 @@ class SamplerTest(chex.TestCase):
         np.testing.assert_allclose(out1.state.blobs, out2.state.blobs)
         np.testing.assert_allclose(out1.logz, out2.logz)
 
+    def test_repro_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            blob_dim=1,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=1,
+            preconditioned=False,
+            dynamic=False,
+        )
+        sampler = SamplerJAX(
+            prior,
+            self._like_blob,
+            cfg,
+            loglike_approx_single_fn=self._approx,
+        )
+
+        out1 = sampler.run(self.key)
+        out2 = sampler.run(self.key)
+
+        np.testing.assert_allclose(out1.state.u, out2.state.u)
+        np.testing.assert_allclose(out1.state.x, out2.state.x)
+        np.testing.assert_allclose(out1.state.logl, out2.state.logl)
+        np.testing.assert_allclose(out1.state.logp, out2.state.logp)
+        np.testing.assert_allclose(out1.state.blobs, out2.state.blobs)
+        np.testing.assert_allclose(out1.logz, out2.logz)
+
+
     @chex.all_variants(with_pmap=False)
     def test_dtype(self):
         prior = self._prior(dtype=jnp.float64)
@@ -419,6 +651,40 @@ class SamplerTest(chex.TestCase):
             prior=prior,
             loglike_single_fn=self._like_blob,
             loglike_approx_single_fn=None,
+            cfg=cfg,
+        )
+
+        out = self.variant(lambda key: run(key))(self.key)
+        expected_dtype = jnp.result_type(prior.params, jnp.float64)
+
+        assert out.state.u.dtype == expected_dtype
+        assert out.state.x.dtype == expected_dtype
+        assert out.state.logl.dtype == expected_dtype
+        assert out.state.logp.dtype == expected_dtype
+        assert out.state.blobs.dtype == expected_dtype
+        assert out.logz.dtype == expected_dtype
+        assert out.logz_err.dtype == expected_dtype
+
+    @chex.all_variants(with_pmap=False)
+    def test_dtype_persistent_mode(self):
+        prior = self._prior(dtype=jnp.float64)
+        cfg = self._cfg(
+            sampling_mode="persistent",
+            blob_dim=1,
+            n_prior=8,
+            n_active=4,
+            n_effective=2,
+            n_total=2,
+            n_max_steps=1,
+            n_steps=0,
+            keep_max=1,
+            preconditioned=False,
+            dynamic=False,
+        )
+        run = make_run_fn(
+            prior=prior,
+            loglike_single_fn=self._like_blob,
+            loglike_approx_single_fn=self._approx,
             cfg=cfg,
         )
 
