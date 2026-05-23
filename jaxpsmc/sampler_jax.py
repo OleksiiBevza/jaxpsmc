@@ -468,6 +468,18 @@ class SamplerConfigJAX:
     n_max_steps: int = 80
     proposal_scale: float = 0.0     # if 0 then set to 2.38/sqrt(D)
 
+    # mutation kernel selector:
+    # if "pcn" keeps the existing preconditioned pCN kernel
+    # if "li_pcn" uses empirical likelihood-informed pCN
+    kernel: str = "pcn"
+
+    # empirical LI-pCN options
+    li_rank: int = 16
+    li_lis_scale: float = 1.0
+    li_cs_scale: float = 1.0
+    li_var_floor: float = 1e-8
+    li_complement_var: float = 1.0
+
     # delayed acceptance
     delayed_acceptance: bool = False
     da_c_const: float = 0.01
@@ -536,6 +548,22 @@ class SamplerConfigJAX:
             raise ValueError(
                 "sampling_mode must be 'persistent' or 'truncated_persistent'."
             )
+        
+
+        kernel_l = str(self.kernel).lower()
+        if kernel_l not in ("pcn", "li_pcn"):
+            raise ValueError("kernel must be one of: 'pcn', 'li_pcn'.")
+
+        if self.li_rank < 0:
+            raise ValueError("li_rank must be non-negative.")
+        if self.li_lis_scale <= 0.0:
+            raise ValueError("li_lis_scale must be positive.")
+        if self.li_cs_scale <= 0.0:
+            raise ValueError("li_cs_scale must be positive.")
+        if self.li_var_floor <= 0.0:
+            raise ValueError("li_var_floor must be positive.")
+        if self.li_complement_var <= 0.0:
+            raise ValueError("li_complement_var must be positive.")        
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1300,7 +1328,15 @@ def make_run_fn(
         n_active_i32 = jnp.asarray(n_active, dtype=jnp.int32)
         res_code_i32 = jnp.asarray(res_code, dtype=jnp.int32)
         dyn_ratio_arr = jnp.asarray(dyn_ratio, dtype=dtype)
-        use_pcn = jnp.asarray(cfg.preconditioned)
+        # use_pcn = jnp.asarray(cfg.preconditioned)
+        kernel = str(cfg.kernel).lower()
+        use_pcn = jnp.asarray(cfg.preconditioned)        
+
+        li_rank = int(cfg.li_rank)
+        li_lis_scale = float(cfg.li_lis_scale)
+        li_cs_scale = float(cfg.li_cs_scale)
+        li_var_floor = float(cfg.li_var_floor)
+        li_complement_var = float(cfg.li_complement_var)        
         dynamic = jnp.asarray(cfg.dynamic)
 
         def cond_fn(carry):
@@ -1438,9 +1474,23 @@ def make_run_fn(
                 flow=flow_obj,
                 scaler_cfg=scaler_cfg,
                 scaler_masks=scaler_masks,
+
+                # Existing pCN keeps the Student-t geometry.
                 geom_mu=geom_new.t_mean,
                 geom_cov=geom_new.t_cov,
                 geom_nu=geom_new.t_nu,
+
+                # LI-pCN uses the empirical weighted Gaussian geometry.
+                li_geom_mu=geom_new.normal_mean,
+                li_geom_cov=geom_new.normal_cov,
+
+                kernel=kernel,
+                li_rank=li_rank,
+                li_lis_scale=li_lis_scale,
+                li_cs_scale=li_cs_scale,
+                li_var_floor=li_var_floor,
+                li_complement_var=li_complement_var,
+
                 n_max=n_max_steps,
                 n_steps=n_steps,
                 use_delayed_acceptance=jnp.asarray(cfg.delayed_acceptance),
