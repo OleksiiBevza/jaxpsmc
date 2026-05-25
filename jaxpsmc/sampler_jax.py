@@ -18,7 +18,7 @@ from .sampler_helper_jax import *
 from .scaler_jax import *
 from .student_jax import *
 from .tools_jax import *
-
+from .dili_geometry_jax import build_dili_pcn_geometry_jax
 
 
 
@@ -469,8 +469,9 @@ class SamplerConfigJAX:
     proposal_scale: float = 0.0     # if 0 then set to 2.38/sqrt(D)
 
     # mutation kernel selector:
-    # if "pcn" keeps the existing preconditioned pCN kernel
-    # if "li_pcn" uses empirical likelihood-informed pCN
+    # if "pcn" = keep the existing kernel
+    # if "li_pcn" =  use empirical likelihood-informed pCN
+    # if "dili_pcn" = use Hessian/GNH-based DILI-pCN
     kernel: str = "pcn"
 
     # empirical LI-pCN options
@@ -479,6 +480,19 @@ class SamplerConfigJAX:
     li_cs_scale: float = 1.0
     li_var_floor: float = 1e-8
     li_complement_var: float = 1.0
+
+    # Hessian/GNH-based DILI-pCN options
+    dili_rank: int = 4
+    dili_n_lis_particles: int = 16
+    dili_lis_scale: float = 1.0
+    dili_cs_scale: float = 1.0
+    dili_gnh_floor: float = 1e-10
+    dili_cov_floor: float = 1e-8
+    dili_complement_var: float = 1.0
+
+    # If True, construct local GNH by autodiff Hessian of negative log-likelihood
+    # in theta-space. If False, user must pass local_gnh_fn to SamplerJAX.
+    dili_autodiff_gnh: bool = False
 
     # delayed acceptance
     delayed_acceptance: bool = False
@@ -549,12 +563,28 @@ class SamplerConfigJAX:
                 "sampling_mode must be 'persistent' or 'truncated_persistent'."
             )
         
-
+        
         kernel_l = str(self.kernel).lower()
-        if kernel_l not in ("pcn", "li_pcn"):
-            raise ValueError("kernel must be one of: 'pcn', 'li_pcn'.")
-
+        if kernel_l not in ("pcn", "li_pcn", "dili_pcn"):
+            raise ValueError("kernel must be one of: 'pcn', 'li_pcn', 'dili_pcn'.")
+        if self.dili_rank <= 0:
+            raise ValueError("dili_rank must be positive.")
+        if self.dili_rank > self.n_dim:
+            raise ValueError("dili_rank must be <= n_dim.")
+        if self.dili_n_lis_particles <= 0:
+            raise ValueError("dili_n_lis_particles must be positive.")
+        if self.dili_lis_scale <= 0.0:
+            raise ValueError("dili_lis_scale must be positive.")
+        if self.dili_cs_scale <= 0.0:
+            raise ValueError("dili_cs_scale must be positive.")
+        if self.dili_gnh_floor <= 0.0:
+            raise ValueError("dili_gnh_floor must be positive.")
+        if self.dili_cov_floor <= 0.0:
+            raise ValueError("dili_cov_floor must be positive.")
+        if self.dili_complement_var <= 0.0:
+            raise ValueError("dili_complement_var must be positive.")
         if self.li_rank < 0:
+          
             raise ValueError("li_rank must be non-negative.")
         if self.li_lis_scale <= 0.0:
             raise ValueError("li_lis_scale must be positive.")
@@ -685,6 +715,7 @@ class SamplerJAX:
         *,
         flow: Optional[Any] = None,
         loglike_approx_single_fn: Optional[Callable[[Array], Any]] = None,
+        local_gnh_fn: Optional[Callable[[Array], Array]] = None,
     ):
         """
         Initializes the sampler wrapper.
@@ -725,14 +756,25 @@ class SamplerJAX:
             raise ValueError(
                 "cfg.delayed_acceptance=True requires loglike_approx_single_fn."
             )
+        if (
+            str(cfg.kernel).lower() == "dili_pcn"
+            and (not cfg.dili_autodiff_gnh)
+            and local_gnh_fn is None
+        ):
+            raise ValueError(
+                "kernel='dili_pcn' requires either cfg.dili_autodiff_gnh=True "
+                "or a user-supplied local_gnh_fn(theta) -> (D, D)."
+            )
         
         # build jitted run function once during initialization
         self._run_fn = make_run_fn(
-            prior=prior, 
-            loglike_single_fn=loglike_single_fn, 
+            prior=prior,
+            loglike_single_fn=loglike_single_fn,
             loglike_approx_single_fn=loglike_approx_single_fn,
-            cfg=cfg, 
-            flow=self.flow)
+            cfg=cfg,
+            flow=self.flow,
+            local_gnh_fn=local_gnh_fn,
+        )
 
     def run(self, key: Array, n_total: Optional[int] = None) -> RunOutputJAX:
         """
@@ -929,6 +971,7 @@ def make_run_fn(
     loglike_approx_single_fn: Optional[Callable[[Array], Any]],
     cfg: SamplerConfigJAX,
     flow: Optional[Any] = None,
+    local_gnh_fn: Optional[Callable[[Array], Array]] = None,
 ) -> Callable[[Array], RunOutputJAX]:
     """
     Builds the sampler run function.
@@ -969,6 +1012,26 @@ def make_run_fn(
 
     # read fixed blob size from config
     blob_dim = int(cfg.blob_dim)
+
+    # static kernel/config values captured by the jitted run function
+    kernel = str(cfg.kernel).lower()
+    use_pcn_bool = bool(cfg.preconditioned)
+
+    # empirical LI-pCN options
+    li_rank = int(cfg.li_rank)
+    li_lis_scale = float(cfg.li_lis_scale)
+    li_cs_scale = float(cfg.li_cs_scale)
+    li_var_floor = float(cfg.li_var_floor)
+    li_complement_var = float(cfg.li_complement_var)
+
+    # Hessian/GNH-based DILI-pCN options
+    dili_rank = int(cfg.dili_rank)
+    dili_n_lis_particles = int(cfg.dili_n_lis_particles)
+    dili_lis_scale = float(cfg.dili_lis_scale)
+    dili_cs_scale = float(cfg.dili_cs_scale)
+    dili_gnh_floor = float(cfg.dili_gnh_floor)
+    dili_cov_floor = float(cfg.dili_cov_floor)
+    dili_complement_var = float(cfg.dili_complement_var)    
 
     sampling_mode = str(cfg.sampling_mode).lower()
     if sampling_mode == "persistent":
@@ -1168,6 +1231,48 @@ def make_run_fn(
         # (ii) fit scaler on the prior samples
         scaler_cfg = fit_jax(prior_samples, scaler_cfg0, scaler_masks)
 
+        def _local_gnh_autodiff(theta_i: Array) -> Array:
+            """
+            Autodiff local GNH approximation in theta-space.
+
+            Computes Hessian[-loglike(x(theta))] and clips it to PSD.
+            This is expensive and should only be used for small/medium tests.
+            """
+            theta_i = jnp.asarray(theta_i)
+            dtype_i = theta_i.dtype
+            d = theta_i.shape[0]
+
+            def potential(th: Array) -> Array:
+                u_i, _ld_flow = flow_obj.bijection.inverse_and_log_det(th, None)
+                x_i, _ld_scaler = inverse_jax(
+                    u_i[None, :],
+                    scaler_cfg,
+                    scaler_masks,
+                )
+                ll_i, _bb = loglike_wrapped(x_i[0])
+                return -jnp.asarray(ll_i, dtype=dtype_i)
+
+            H = jax.hessian(potential)(theta_i)
+            H = 0.5 * (H + H.T)
+
+            vals, vecs = jnp.linalg.eigh(H)
+            vals = jnp.maximum(vals, jnp.asarray(dili_gnh_floor, dtype=dtype_i))
+            H_psd = (vecs * vals[None, :]) @ vecs.T
+            H_psd = 0.5 * (H_psd + H_psd.T)
+
+            return H_psd + jnp.asarray(dili_gnh_floor, dtype=dtype_i) * jnp.eye(
+                d,
+                dtype=dtype_i,
+            )
+
+        if kernel == "dili_pcn":
+            if cfg.dili_autodiff_gnh:
+                local_gnh_effective_fn = _local_gnh_autodiff
+            else:
+                local_gnh_effective_fn = local_gnh_fn
+        else:
+            local_gnh_effective_fn = None        
+
         # (iii) create particle-history buffers
         state = init_particles_state_jax(
             max_steps=max_steps_total,
@@ -1322,22 +1427,15 @@ def make_run_fn(
         w0 = jnp.full((n_active,), jnp.asarray(1.0, dtype) / jnp.asarray(n_active, dtype), dtype=dtype)
         geom, key, _ = geometry_fit_jax(geom0, theta0, w0, use_weights=jnp.asarray(False), key=key)
 
-        # convert loop settings to JAX arrays
         n_total = jnp.asarray(n_total_dyn, dtype=dtype)
         metric_id = jnp.asarray(metric_code, dtype=jnp.int32)
         n_active_i32 = jnp.asarray(n_active, dtype=jnp.int32)
         res_code_i32 = jnp.asarray(res_code, dtype=jnp.int32)
         dyn_ratio_arr = jnp.asarray(dyn_ratio, dtype=dtype)
-        # use_pcn = jnp.asarray(cfg.preconditioned)
-        kernel = str(cfg.kernel).lower()
-        use_pcn = jnp.asarray(cfg.preconditioned)        
 
-        li_rank = int(cfg.li_rank)
-        li_lis_scale = float(cfg.li_lis_scale)
-        li_cs_scale = float(cfg.li_cs_scale)
-        li_var_floor = float(cfg.li_var_floor)
-        li_complement_var = float(cfg.li_complement_var)        
+        use_pcn = jnp.asarray(use_pcn_bool)
         dynamic = jnp.asarray(cfg.dynamic)
+
 
         def cond_fn(carry):
             """
@@ -1440,6 +1538,46 @@ def make_run_fn(
                 key=key_c,
             )
 
+            if kernel == "dili_pcn":
+                # Use only a small fixed number of high-weight particles for
+                # Hessian/GNH construction. Full Hessians for all kept particles
+                # are usually too expensive.
+                top_w, top_idx = jax.lax.top_k(
+                    cur_rw["weights"],
+                    k=dili_n_lis_particles,
+                )
+
+                theta_gnh = jnp.take(theta_keep, top_idx, axis=0)
+                w_gnh = top_w / jnp.where(
+                    jnp.sum(top_w) > 0,
+                    jnp.sum(top_w),
+                    jnp.asarray(1.0, dtype=top_w.dtype),
+                )
+
+                dili_geom = build_dili_pcn_geometry_jax(
+                    theta_gnh,
+                    w_gnh,
+                    local_gnh_fn=local_gnh_effective_fn,
+                    rank=dili_rank,
+                    gnh_floor=dili_gnh_floor,
+                    cov_floor=dili_cov_floor,
+                    complement_var=dili_complement_var,
+                )
+
+                dili_center = dili_geom.center
+                dili_basis = dili_geom.basis
+                dili_post_var = dili_geom.post_var
+                dili_cov_ref = dili_geom.cov_ref
+            else:
+                # Static fallback. These values are not used unless kernel="dili_pcn",
+                # but keeping fixed shapes makes the mutate call simple.
+                d = theta_keep.shape[1]
+                dtype_theta = theta_keep.dtype
+                dili_center = jnp.zeros((d,), dtype=dtype_theta)
+                dili_basis = jnp.zeros((d, dili_rank), dtype=dtype_theta)
+                dili_post_var = jnp.ones((dili_rank,), dtype=dtype_theta)
+                dili_cov_ref = jnp.eye(d, dtype=dtype_theta)
+
             # resample kept particles down to active set
             rs_out, _status, key_c = resample_particles_jax(
                 cur_rw,
@@ -1490,6 +1628,13 @@ def make_run_fn(
                 li_cs_scale=li_cs_scale,
                 li_var_floor=li_var_floor,
                 li_complement_var=li_complement_var,
+
+                dili_center=dili_center,
+                dili_basis=dili_basis,
+                dili_post_var=dili_post_var,
+                dili_cov_ref=dili_cov_ref,
+                dili_lis_scale=dili_lis_scale,
+                dili_cs_scale=dili_cs_scale,
 
                 n_max=n_max_steps,
                 n_steps=n_steps,

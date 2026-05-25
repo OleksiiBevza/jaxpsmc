@@ -41,17 +41,9 @@ class SamplerTest(chex.TestCase):
             n_max_steps=0,
             proposal_scale=0.0,
             kernel="pcn",
+            dili_rank=2,
+            dili_n_lis_particles=4,
             keep_max=4,
-            trim_ess=0.99,
-            bins=16,
-            bisect_steps=8,
-            sampling_mode="truncated_persistent",
-            preconditioned=False,
-            dynamic=False,
-            metric="ess",
-            resample="mult",
-            transform="probit",
-            blob_dim=0,
         )
         base.update(kwargs)
         return SamplerConfigJAX(**base)
@@ -166,18 +158,20 @@ class SamplerTest(chex.TestCase):
         assert cfg.n_prior == 4
         assert cfg.n_total == 2
         assert cfg.kernel == "pcn"
-        assert cfg.preconditioned is False
-        assert cfg.dynamic is False
+        assert cfg.preconditioned is True
+        assert cfg.dynamic is True
         assert cfg.metric == "ess"
         assert cfg.resample == "mult"
         assert cfg.sampling_mode == "truncated_persistent" 
 
     def test_config_kernel_api(self):
         cfg_pcn = self._cfg(kernel="pcn")
-        cfg_li_pcn = self._cfg(kernel="li_pcn")
+        cfg_li = self._cfg(kernel="li_pcn")
+        cfg_dili = self._cfg(kernel="dili_pcn")
 
         assert cfg_pcn.kernel == "pcn"
-        assert cfg_li_pcn.kernel == "li_pcn"
+        assert cfg_li.kernel == "li_pcn"
+        assert cfg_dili.kernel == "dili_pcn"
 
         with self.assertRaisesRegex(ValueError, "kernel must be one of"):
             self._cfg(kernel="none")
@@ -187,18 +181,28 @@ class SamplerTest(chex.TestCase):
     def test_config_kernel_is_independent_from_preconditioned_flag(self):
         cfg_pcn_noop = self._cfg(kernel="pcn", preconditioned=False)
         cfg_li_noop = self._cfg(kernel="li_pcn", preconditioned=False)
+        cfg_dili_noop = self._cfg(kernel="dili_pcn", preconditioned=False)
+
         cfg_pcn_active = self._cfg(kernel="pcn", preconditioned=True)
         cfg_li_active = self._cfg(kernel="li_pcn", preconditioned=True)
+        cfg_dili_active = self._cfg(kernel="dili_pcn", preconditioned=True)
 
         assert cfg_pcn_noop.kernel == "pcn"
         assert cfg_li_noop.kernel == "li_pcn"
+        assert cfg_dili_noop.kernel == "dili_pcn"
+
         assert cfg_pcn_noop.preconditioned is False
         assert cfg_li_noop.preconditioned is False
+        assert cfg_dili_noop.preconditioned is False
 
         assert cfg_pcn_active.kernel == "pcn"
         assert cfg_li_active.kernel == "li_pcn"
+        assert cfg_dili_active.kernel == "dili_pcn"
+
         assert cfg_pcn_active.preconditioned is True
         assert cfg_li_active.preconditioned is True
+        assert cfg_dili_active.preconditioned is True
+
 
     def test_config_sampling_mode_persistent(self):
         cfg = self._cfg(sampling_mode="persistent")

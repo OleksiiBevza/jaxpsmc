@@ -11,6 +11,7 @@ from jax import lax
 from typing import Callable, Mapping, Tuple, Any, Optional, Dict, NamedTuple
 from .scaler_jax import *
 from .pcn_jax import *
+from .dili_pcn_jax import dili_pcn_jax
 from .li_pcn_jax import likelihood_informed_pcn_jax
 
 
@@ -912,6 +913,16 @@ def mutate(
     li_var_floor: float = 1e-8,
     li_complement_var: float = 1.0,
 
+    # Hessian/GNH-based DILI-pCN geometry
+    dili_center: Optional[Array] = None,
+    dili_basis: Optional[Array] = None,
+    dili_post_var: Optional[Array] = None,
+    dili_cov_ref: Optional[Array] = None,
+
+    # DILI-pCN options
+    dili_lis_scale: float = 1.0,
+    dili_cs_scale: float = 1.0,    
+
     # choice form
     n_max: int,
     n_steps: int,
@@ -921,104 +932,12 @@ def mutate(
     condition: Optional[Array] = None,
 ) -> Tuple[Array, Dict[str, Array], Dict[str, Array]]:
     """
-    Runs the mutation step for the current SMC particles.
+    Dispatches mutation to one of:
+      kernel="pcn"     : existing preconditioned pCN
+      kernel="li_pcn"  : empirical likelihood-informed pCN
 
-    Mutation means moving the resampled particles with an MCMC kernel.
-    This function chooses which mutation kernel to use.
-
-    If kernel is "pcn", the function uses the pCN
-    kernel. If kernel is "li_pcn", the function uses the empirical
-    likelihood-informed pCN kernel.
-
-    The function also prepares the likelihood wrappers, passes geometry,
-    scaler, flow, and delayed-acceptance settings to the selected kernel,
-    and collects the updated particles and mutation diagnostics.
-
-    The kernel argument is normal Python configuration.
-    It should stay a Python string and should not be a traced JAX array.
-
-    Parameters:
-    -----------
-    key:
-        JAX random key used by the mutation kernel.
-    current_particles:
-        dictionary with the particles before mutation.
-        It must contain "u", "x", "logdetj", "logl", "logp",
-        "logdetj_flow", "blobs", "beta", "calls", and "proposal_scale".
-    loglike_single_fn:
-        function that computes the full log-likelihood for one particle.
-        It must return a log-likelihood value and a blob output.
-    loglike_approx_single_fn:
-        optional function that computes an approximate log-likelihood
-        for one particle. It is used by delayed acceptance.
-        If None, a zero approximate value is used inside this helper.
-    logprior_fn:
-        function that computes the log-prior for one particle.
-    flow:
-        flow object used to map between latent space and x-space.
-    scaler_cfg:
-        scaler configuration used by the coordinate transform.
-    scaler_masks:
-        masks used by the scaler.
-    geom_mu:
-        location vector used by the standard pCN geometry.
-    geom_cov:
-        covariance matrix used by the standard pCN geometry.
-    geom_nu:
-        degrees-of-freedom value used by the standard pCN geometry.
-    li_geom_mu:
-        optional location vector for the likelihood-informed pCN kernel.
-        If None, geom_mu is used.
-    li_geom_cov:
-        optional covariance matrix for the likelihood-informed pCN kernel.
-        If None, geom_cov is used.
-    kernel:
-        mutation kernel name.
-        Use "pcn" for standard preconditioned pCN.
-        Use "li_pcn" for empirical likelihood-informed pCN.
-    li_rank:
-        number of likelihood-informed directions used by LI-pCN.
-    li_lis_scale:
-        proposal scale used in the likelihood-informed subspace.
-    li_cs_scale:
-        proposal scale used in the complementary subspace.
-    li_var_floor:
-        minimum variance allowed in the LI-pCN geometry.
-    li_complement_var:
-        variance used in directions outside the likelihood-informed subspace.
-    n_max:
-        maximum number of mutation iterations allowed by the kernel.
-    n_steps:
-        target number of accepted or attempted mutation steps,
-        depending on the kernel implementation.
-    use_delayed_acceptance:
-        Boolean flag saying whether delayed acceptance is used.
-    da_c_const:
-        clipping constant used by conservative delayed acceptance.
-    da_d_const:
-        exponent constant used by conservative delayed acceptance.
-    condition:
-        optional conditioning value passed to the flow.
-
-    Returns:
-    --------
-    Tuple[Array, Dict[str, Array], Dict[str, Array]]:
-        key:
-            updated JAX random key.
-        new_particles:
-            dictionary with mutated particles and updated sampler state.
-            It contains the new particles, log values, blobs, beta,
-            total likelihood calls, proposal scale, efficiency, steps,
-            and acceptance information.
-        info:
-            dictionary with mutation diagnostics.
-            It contains raw efficiency, proposal scale, acceptance value,
-            number of steps, and the number of new likelihood calls.
-
-    Raises:
-    -------
-    ValueError:
-        raised when kernel is not "pcn" or "li_pcn".
+    The kernel string is intentionally static Python configuration.
+    Do not make it a traced JAX array.
     """
     u = current_particles["u"]
     n_dim = u.shape[1]
@@ -1040,68 +959,14 @@ def mutate(
     )
 
     def loglike_fn_single(x_i: Array) -> Tuple[Array, Array]:
-        """
-        Evaluates the full log-likelihood for one particle.
-
-        This small wrapper keeps the likelihood interface consistent
-        before it is passed into the mutation kernel.
-
-        Parameters:
-        -----------
-        x_i:
-            one particle in x-space, shape (D,).
-
-        Returns:
-        --------
-        Tuple[Array, Array]:
-            log-likelihood value and blob output for this particle.
-        """
         return _log_like(x_i, loglike_single_fn)
 
     def loglike_approx_fn_single(x_i: Array) -> Array:
-        """
-        Evaluates the approximate log-likelihood for one particle.
-
-        This function is used when delayed acceptance is enabled.
-        If no approximate likelihood function is provided, it returns zero.
-        This keeps the mutation kernel interface valid.
-
-        Parameters:
-        -----------
-        x_i:
-            one particle in x-space, shape (D,).
-
-        Returns:
-        --------
-        Array:
-            approximate log-likelihood value for this particle.
-        """
         if loglike_approx_single_fn is None:
             return jnp.asarray(0.0, dtype=x_i.dtype)
         return jnp.asarray(loglike_approx_single_fn(x_i), dtype=x_i.dtype)
 
     def _do_pcn(op):
-        """
-        Runs the standard pCN mutation kernel.
-
-        This helper unpacks the particle data and passes it to
-        preconditioned_pcn_jax. It uses the full likelihood wrapper,
-        the approximate likelihood wrapper, the prior, the flow,
-        the scaler, and the pCN geometry.
-
-        Parameters:
-        -----------
-        op:
-            tuple with all values needed by the pCN kernel.
-            It contains the random key, particles, log values,
-            blobs, beta, and proposal scale.
-
-        Returns:
-        --------
-        Dict[str, Array]:
-            output dictionary returned by preconditioned_pcn_jax.
-            It contains the mutated particles and mutation diagnostics.
-        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, beta0, proposal_scale0,
@@ -1136,26 +1001,6 @@ def mutate(
         )
 
     def _do_li_pcn(op):
-        """
-        Runs the likelihood-informed pCN mutation kernel.
-
-        This helper unpacks the particle data and passes it to
-        likelihood_informed_pcn_jax. It uses likelihood-informed geometry
-        when it is provided. If not, it reuses the standard pCN geometry.
-
-        Parameters:
-        -----------
-        op:
-            tuple with all values needed by the LI-pCN kernel.
-            It contains the random key, particles, log values,
-            blobs, beta, and proposal scale.
-
-        Returns:
-        --------
-        Dict[str, Array]:
-            output dictionary returned by likelihood_informed_pcn_jax.
-            It contains the mutated particles and mutation diagnostics.
-        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, beta0, proposal_scale0,
@@ -1195,25 +1040,56 @@ def mutate(
             da_d_const=da_d_const,
             condition=condition,
         )
+    
+    def _do_dili_pcn(op):
+        (
+            key0, u0, x0, logdetj0, logl0, logp0,
+            logdetj_flow0, blobs0, beta0, proposal_scale0,
+        ) = op
+
+        if (
+            dili_center is None
+            or dili_basis is None
+            or dili_post_var is None
+            or dili_cov_ref is None
+        ):
+            raise ValueError(
+                "kernel='dili_pcn' requires dili_center, dili_basis, "
+                "dili_post_var, and dili_cov_ref."
+            )
+
+        return dili_pcn_jax(
+            key0,
+            u=u0,
+            x=x0,
+            logdetj=logdetj0,
+            logp=logp0,
+            logl=logl0,
+            logdetj_flow=logdetj_flow0,
+            blobs=blobs0,
+            beta=beta0,
+            loglike_fn=loglike_fn_single,
+            loglike_approx_fn=loglike_approx_fn_single,
+            logprior_fn=logprior_fn,
+            flow=flow,
+            scaler_cfg=scaler_cfg,
+            scaler_masks=scaler_masks,
+            dili_center=dili_center,
+            dili_basis=dili_basis,
+            dili_post_var=dili_post_var,
+            dili_cov_ref=dili_cov_ref,
+            n_max=n_max,
+            n_steps=n_steps,
+            proposal_scale=proposal_scale0,
+            dili_lis_scale=dili_lis_scale,
+            dili_cs_scale=dili_cs_scale,
+            use_delayed_acceptance=use_delayed_acceptance,
+            da_c_const=da_c_const,
+            da_d_const=da_d_const,
+            condition=condition,
+        )
 
     def _do_noop(op):
-        """
-        Returns the input particles unchanged if no mutation.
-
-        Parameters:
-        -----------
-        op:
-            tuple with all values needed by the mutation dispatcher.
-            It contains the random key, particles, log values, blobs,
-            beta, and proposal scale.
-
-        Returns:
-        --------
-        Dict[str, Array]:
-            dictionary with unchanged particle values and zero mutation
-            diagnostics. The number of steps, calls, and accepted proposals
-            is set to zero, while the proposal scale is preserved.
-        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, _beta0, proposal_scale0,
@@ -1238,7 +1114,6 @@ def mutate(
             "proposal_scale": proposal_scale0,
         }
 
-
     kernel_l = str(kernel).lower()
 
     if kernel_l == "pcn":
@@ -1255,8 +1130,15 @@ def mutate(
             _do_noop,
             payload,
         )
+    elif kernel_l == "dili_pcn":
+        results = jax.lax.cond(
+            jnp.asarray(use_preconditioned_pcn),
+            _do_dili_pcn,
+            _do_noop,
+            payload,
+        )
     else:
-        raise ValueError("kernel must be one of: 'pcn', 'li_pcn'.")
+        raise ValueError("kernel must be one of: 'pcn', 'li_pcn', 'dili_pcn'.")
 
     new_calls = current_particles["calls"] + results["calls"]
     new_proposal_scale = results["proposal_scale"]
