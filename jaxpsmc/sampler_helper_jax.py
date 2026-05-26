@@ -932,12 +932,94 @@ def mutate(
     condition: Optional[Array] = None,
 ) -> Tuple[Array, Dict[str, Array], Dict[str, Array]]:
     """
-    Dispatches mutation to one of:
-      kernel="pcn"     : existing preconditioned pCN
-      kernel="li_pcn"  : empirical likelihood-informed pCN
+    Runs the mutation step to the selected pCN-type kernel.
 
-    The kernel string is intentionally static Python configuration.
-    Do not make it a traced JAX array.
+    This function chooses between three mutation kernels:
+        * ``kernel="pcn"`` runs the standard preconditioned pCN kernel.
+        * ``kernel="li_pcn"`` runs the empirical likelihood-informed pCN kernel.
+        * ``kernel="dili_pcn"`` runs the Hessian/GNH-based DILI-pCN kernel.
+
+    The ``kernel`` argument is static Python configuration. It is
+    a Python string and should not be passed as a traced JAX value.
+
+    Parameters
+    ----------
+    key:
+        JAX random key used by the selected mutation kernel.
+    current_particles:
+        Dictionary containing the current particle state. It must contain
+        ``u``, ``x``, ``logdetj``, ``logl``, ``logp``, ``logdetj_flow``,
+        ``blobs``, ``beta``, ``calls``, and ``proposal_scale``.
+    use_preconditioned_pcn:
+        Boolean scalar controlling whether mutation is active.
+    loglike_single_fn:
+        Exact single-particle log-likelihood function.
+    loglike_approx_single_fn:
+        Optional approximate single-particle log-likelihood function used
+        by delayed acceptance.
+    logprior_fn:
+        Single-particle log-prior function.
+    flow:
+        Flow object or flow parameters used to move between ``u`` and
+        ``theta`` spaces.
+    scaler_cfg:
+        Scaler configuration dictionary.
+    scaler_masks:
+        Scaler mask dictionary.
+    geom_mu:
+        Mean vector used by the standard preconditioned pCN geometry.
+    geom_cov:
+        Covariance matrix used by the standard preconditioned pCN geometry.
+    geom_nu:
+        Degrees of freedom used by the standard pCN/Student-t geometry.
+    li_geom_mu:
+        Optional mean vector for the empirical LI-pCN kernel. If omitted,
+        ``geom_mu`` is reused.
+    li_geom_cov:
+        Optional covariance matrix for the empirical LI-pCN kernel. If
+        omitted, ``geom_cov`` is reused.
+    kernel:
+        Mutation kernel name. Must be ``"pcn"``, ``"li_pcn"``, or
+        ``"dili_pcn"``.
+    li_rank:
+        Number of empirical likelihood-informed directions used by LI-pCN.
+    li_lis_scale:
+        Proposal-scale multiplier for LI-pCN active directions.
+    li_cs_scale:
+        Proposal-scale multiplier for LI-pCN complement directions.
+    li_var_floor:
+        Minimum variance used in the empirical LI-pCN geometry.
+    li_complement_var:
+        Reference variance used outside the empirical LIS.
+    dili_center:
+        Center of the DILI-pCN geometry in theta-space.
+    dili_basis:
+        Orthonormal DILI basis, shape ``(D, r)``.
+    dili_post_var:
+        Posterior variance estimates in the DILI basis, shape ``(r,)``.
+    dili_cov_ref:
+        Reference covariance used by conservative delayed acceptance.
+    dili_lis_scale:
+        Proposal-scale multiplier for the DILI LIS move.
+    dili_cs_scale:
+        Proposal-scale multiplier for the DILI complement-space move.
+    n_max:
+        Maximum number of mutation iterations.
+    n_steps:
+        Baseline number of mutation steps used by the stopping rule.
+    use_delayed_acceptance:
+        If true, the selected kernel uses delayed acceptance.
+    da_c_const:
+        Conservative delayed-acceptance constant ``c``.
+    da_d_const:
+        Conservative delayed-acceptance constant ``d``.
+    condition:
+        Optional condition passed to flow helper functions.
+
+    Returns
+    -------
+    Tuple[Array, Dict[str, Array], Dict[str, Array]]:
+        Updated random key, updated particle dictionary, and diagnostics.
     """
     u = current_particles["u"]
     n_dim = u.shape[1]
@@ -959,14 +1041,58 @@ def mutate(
     )
 
     def loglike_fn_single(x_i: Array) -> Tuple[Array, Array]:
+        """
+        Evaluates the exact likelihood wrapper for one particle.
+
+        Parameters
+        ----------
+        x_i:
+            One particle in physical space, shape ``(D,)``.
+
+        Returns
+        -------
+        Tuple[Array, Array]:
+            Exact log-likelihood value and blob output for this particle.
+        """
         return _log_like(x_i, loglike_single_fn)
 
     def loglike_approx_fn_single(x_i: Array) -> Array:
+        """
+        Evaluates approximate likelihood for one particle.
+
+        If no approximate likelihood function is supplied, this returns zero.
+        That keeps the delayed-acceptance kernel interface valid even when
+        delayed acceptance is disabled.
+
+        Parameters
+        ----------
+        x_i:
+            One particle in physical space, shape ``(D,)``.
+
+        Returns
+        -------
+        Array:
+            Approximate log-likelihood value for this particle.
+        """
         if loglike_approx_single_fn is None:
             return jnp.asarray(0.0, dtype=x_i.dtype)
         return jnp.asarray(loglike_approx_single_fn(x_i), dtype=x_i.dtype)
 
     def _do_pcn(op):
+        """
+        Runs the standard preconditioned pCN mutation branch.
+
+        Parameters
+        ----------
+        op:
+            Packed mutation state containing the random key, particles,
+            log-density values, blobs, temperature, and proposal scale.
+
+        Returns
+        -------
+        Dict[str, Array]:
+            Result dictionary returned by ``preconditioned_pcn_jax``.
+        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, beta0, proposal_scale0,
@@ -1001,6 +1127,23 @@ def mutate(
         )
 
     def _do_li_pcn(op):
+        """
+        Runs empirical likelihood-informed pCN mutation branch.
+
+        If LI-specific geometry is not supplied, this branch reuses the
+        default geometry from ``geom_mu`` and ``geom_cov``.
+
+        Parameters
+        ----------
+        op:
+            Packed mutation state containing the random key, particles,
+            log-density values, blobs, temperature, and proposal scale.
+
+        Returns
+        -------
+        Dict[str, Array]:
+            Result dictionary returned by ``likelihood_informed_pcn_jax``.
+        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, beta0, proposal_scale0,
@@ -1042,6 +1185,29 @@ def mutate(
         )
     
     def _do_dili_pcn(op):
+        """
+        Runs the Hessian/GNH-based DILI-pCN mutation branch.
+
+        This branch requires precomputed DILI geometry. The required objects
+        are ``dili_center``, ``dili_basis``, ``dili_post_var``, and
+        ``dili_cov_ref``.
+
+        Parameters
+        ----------
+        op:
+            Packed mutation state containing the random key, particles,
+            log-density values, blobs, temperature, and proposal scale.
+
+        Returns
+        -------
+        Dict[str, Array]:
+            Result dictionary returned by ``dili_pcn_jax``.
+
+        Raises
+        ------
+        ValueError:
+            If any required DILI geometry object is missing.
+        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, beta0, proposal_scale0,
@@ -1090,6 +1256,24 @@ def mutate(
         )
 
     def _do_noop(op):
+        """
+        Returns the current particle state without applying mutation.
+
+        Branch is used when ``use_preconditioned_pcn`` is false.
+        It preserves all particles and log-density values and returns zero
+        mutation diagnostics.
+
+        Parameters
+        ----------
+        op:
+            Packed mutation state containing the random key, particles,
+            log-density values, blobs, temperature, and proposal scale.
+
+        Returns
+        -------
+        Dict[str, Array]:
+            Result dictionary with unchanged particles and zero diagnostics.
+        """
         (
             key0, u0, x0, logdetj0, logl0, logp0,
             logdetj_flow0, blobs0, _beta0, proposal_scale0,
@@ -1168,18 +1352,6 @@ def mutate(
     }
 
     return results["key"], new_particles, info
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
