@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from jaxpsmc.dili_geometry_jax import (
+from jaxpsmc.geometry.dili_geometry_jax import (
     DILIPCNGeometry,
     _normalize_weights_jax,
     _project_psd_jax,

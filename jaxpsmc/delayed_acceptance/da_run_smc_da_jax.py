@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ..geometry_jax import Geometry, geometry_fit_jax
+from ..geometry.geometry_jax import Geometry, geometry_fit_jax
 from ..particles_jax import ParticlesState, ParticlesStep, record_step_jax
 from ..sampler_helper_jax import (
     mutate,

@@ -9,7 +9,7 @@ from jax import lax
 
 # helper modules used by the sampler
 from .bisect_jax import *
-from .geometry_jax import *
+from .geometry.geometry_jax import *
 from .input_validation_jax import *
 from .particles_jax import *
 from .pcn_jax import *
@@ -18,7 +18,7 @@ from .sampler_helper_jax import *
 from .scaler_jax import *
 from .student_jax import *
 from .tools_jax import *
-from .dili_geometry_jax import build_dili_pcn_geometry_jax
+from .geometry.dili_geometry_jax import build_dili_pcn_geometry_jax
 
 
 
