@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from jaxpsmc.geometry_jax import (
+from jaxpsmc.geometry.geometry_jax import (
     Geometry,
     _cov_unweighted,
     _cov_weighted_aweights,
