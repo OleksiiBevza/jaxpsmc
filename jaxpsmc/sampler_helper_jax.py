@@ -10,11 +10,9 @@ from jax import lax
 
 from typing import Callable, Mapping, Tuple, Any, Optional, Dict, NamedTuple
 from .scaler_jax import *
-from .pcn_jax import *
-from .dili_pcn_jax import dili_pcn_jax
-from .li_pcn_jax import likelihood_informed_pcn_jax
-
-
+from .mcmc.pcn_jax import *
+from .mcmc.dili_pcn_jax import dili_pcn_jax
+from .mcmc.li_pcn_jax import likelihood_informed_pcn_jax
 
 
 

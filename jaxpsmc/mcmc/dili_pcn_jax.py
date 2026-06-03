@@ -5,12 +5,11 @@ from typing import Callable, Mapping, Tuple, Any, Optional, Dict
 import jax
 import jax.numpy as jnp
 
-from .geometry.dili_geometry_jax import DILIPCNGeometry
-from .scaler_jax import *
-from .pcn_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
-from .delayed_acceptance.da_conservative_damh_jax import (
-    conservative_damh_step_jax,
-)
+from ..geometry.dili_geometry_jax import DILIPCNGeometry
+from ..scaler_jax import *
+from ..delayed_acceptance.da_conservative_damh_jax import (
+    conservative_damh_step_jax,)
+from .flow_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
 
 Array = jax.Array
 
