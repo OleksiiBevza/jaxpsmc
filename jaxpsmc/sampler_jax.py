@@ -12,7 +12,6 @@ from .bisect_jax import *
 from .geometry.geometry_jax import *
 from .input_validation_jax import *
 from .particles_jax import *
-from .pcn_jax import *
 from .prior_jax import *
 from .sampler_helper_jax import *
 from .scaler_jax import *
