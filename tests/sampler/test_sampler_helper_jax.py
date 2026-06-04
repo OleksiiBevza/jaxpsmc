@@ -11,7 +11,7 @@ from jaxpsmc.particles_jax import (
     record_step_jax,
 )
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
-from jaxpsmc.sampler_helper_jax import (
+from jaxpsmc.sampler.sampler_helper_jax import (
     METRIC_ESS,
     METRIC_USS,
     _ECONVERGED,

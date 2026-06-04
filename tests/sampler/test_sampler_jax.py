@@ -6,7 +6,7 @@ from absl.testing import absltest
 
 from jaxpsmc.particles_jax import ParticlesState, ParticlesStep, init_particles_state_jax
 from jaxpsmc.prior_jax import NORMAL, Prior
-from jaxpsmc.sampler_jax import (
+from jaxpsmc.sampler.sampler_jax import (
     IdentityBijectionJAX,
     IdentityFlowJAX,
     RunOutputJAX,

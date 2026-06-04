@@ -12,7 +12,7 @@ from jaxpsmc.delayed_acceptance.da_run_smc_da_jax import (
 )
 from jaxpsmc.geometry.geometry_jax import Geometry
 from jaxpsmc.particles_jax import ParticlesStep, init_particles_state_jax, record_step_jax
-from jaxpsmc.sampler_jax import IdentityFlowJAX
+from jaxpsmc.sampler.sampler_jax import IdentityFlowJAX
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
 
 
