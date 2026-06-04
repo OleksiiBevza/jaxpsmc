@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from .tools_jax import *
-from .particles_jax import *
+from ..tools_jax import *
+from ..particles_jax import *
 
 from functools import partial
 import jax
@@ -9,10 +9,10 @@ import jax.numpy as jnp
 from jax import lax
 
 from typing import Callable, Mapping, Tuple, Any, Optional, Dict, NamedTuple
-from .scaler_jax import *
-from .mcmc.pcn_jax import *
-from .mcmc.dili_pcn_jax import dili_pcn_jax
-from .mcmc.li_pcn_jax import likelihood_informed_pcn_jax
+from ..scaler_jax import *
+from ..mcmc.pcn_jax import *
+from ..mcmc.dili_pcn_jax import dili_pcn_jax
+from ..mcmc.li_pcn_jax import likelihood_informed_pcn_jax
 
 
 

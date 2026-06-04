@@ -14,7 +14,7 @@ from jaxpsmc.mcmc.flow_jax import (
     _flow_u_to_theta_jax,
     _flow_theta_to_u_jax,
 )
-from jaxpsmc.sampler_helper_jax import mutate
+from jaxpsmc.sampler.sampler_helper_jax import mutate
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
 
 
