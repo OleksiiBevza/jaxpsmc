@@ -9,13 +9,11 @@ from jax import lax
 
 from ..geometry.geometry_jax import Geometry, geometry_fit_jax
 from ..particles_jax import ParticlesState, ParticlesStep, record_step_jax
-from ..sampler.sampler_helper_jax import (
-    mutate,
-    not_termination_jax,
-    resample_particles_jax,
-    reweight_step_jax,
-    reweight_step_persistent_jax,
-)
+from ..sampler.mutate_jax import mutate
+from ..sampler.termination_jax import not_termination_jax
+from ..sampler.resample_jax import resample_particles_jax
+from ..sampler.reweight_jax import reweight_step_jax
+from ..sampler.persistent_jax import reweight_step_persistent_jax
 
 
 Array = jax.Array
