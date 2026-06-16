@@ -53,6 +53,7 @@ class DALogTargetEval(NamedTuple):
         stores log-target values and bookkeeping information
         for one batch of particles.
     """
+
     value: Array
     logl_full: Array
     logl_approx: Array
@@ -63,7 +64,7 @@ class DALogTargetEval(NamedTuple):
     prior_calls: Array
 
 
-def da_target_type_code(name: str) -> jnp.int32:
+def da_target_type(name: str) -> jnp.int32:
     """
     Converts a target type name into an integer code.
 
@@ -150,7 +151,7 @@ def annealed_log_target_jax(
         Usually between 0 and 1.
     type_code:
         integer code selecting the target type.
-        Use da_target_type_code to create this safely.
+        Use da_target_type to create this safely.
     start_from_approx:
         whether to include the base approximate likelihood
         in the annealing path.
@@ -266,7 +267,9 @@ def make_evaluator_jax(
         and model-call counts.
     """
     if transform_single is None:
-        transform_single = lambda x: x
+
+        def transform_single(x: Array) -> Array:
+            return x
 
     log_likelihood_batch = jax.vmap(log_likelihood_single, in_axes=0, out_axes=0)
     log_like_approx_batch = jax.vmap(log_like_approx_single, in_axes=0, out_axes=0)
@@ -298,7 +301,7 @@ def make_evaluator_jax(
             Usually between 0 and 1.
         type_code:
             integer code selecting the target type.
-            Use da_target_type_code to create this safely.
+            Use da_target_type to create this safely.
         start_from_approx:
             whether to include the base approximate likelihood
             in the annealing path.
@@ -354,13 +357,17 @@ def make_evaluator_jax(
             x_t = transform_batch(x)
             la = jnp.asarray(log_like_approx_batch(x_t), dtype=dtype)
             val = b * la
-            return DALogTargetEval(val, nan_vec, la, nan_vec, nan_vec, zero_i, n, zero_i)
+            return DALogTargetEval(
+                val, nan_vec, la, nan_vec, nan_vec, zero_i, n, zero_i
+            )
 
         def eval_full_likelihood(op):
             x, b, _, _ = op
             lf = jnp.asarray(log_likelihood_batch(x), dtype=dtype)
             val = b * lf
-            return DALogTargetEval(val, lf, nan_vec, nan_vec, nan_vec, n, zero_i, zero_i)
+            return DALogTargetEval(
+                val, lf, nan_vec, nan_vec, nan_vec, n, zero_i, zero_i
+            )
 
         def eval_full_posterior(op):
             x, b, sfa, max_a = op

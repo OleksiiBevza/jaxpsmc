@@ -11,7 +11,7 @@ from jaxpsmc.delayed_acceptance.da_likelihood_interface_jax import (
     TYPE_FULL_POSTERIOR,
     TYPE_PRIOR,
     annealed_log_target_jax,
-    da_target_type_code,
+    da_target_type,
     make_evaluator_jax,
 )
 
@@ -69,27 +69,32 @@ class DALikelihoodTest(chex.TestCase):
         return jax.vmap(self._transform)(x)
 
     def test_code(self):
-        assert int(da_target_type_code("approx_posterior")) == int(TYPE_APPROX_POSTERIOR)
-        assert int(da_target_type_code("approx_likelihood")) == int(TYPE_APPROX_LIKELIHOOD)
-        assert int(da_target_type_code("full_likelihood")) == int(TYPE_FULL_LIKELIHOOD)
-        assert int(da_target_type_code("full_posterior")) == int(TYPE_FULL_POSTERIOR)
-        assert int(da_target_type_code("prior")) == int(TYPE_PRIOR)
+        assert int(da_target_type("approx_posterior")) == int(
+            TYPE_APPROX_POSTERIOR
+        )
+        assert int(da_target_type("approx_likelihood")) == int(
+            TYPE_APPROX_LIKELIHOOD
+        )
+        assert int(da_target_type("full_likelihood")) == int(TYPE_FULL_LIKELIHOOD)
+        assert int(da_target_type("full_posterior")) == int(TYPE_FULL_POSTERIOR)
+        assert int(da_target_type("prior")) == int(TYPE_PRIOR)
 
         with self.assertRaises(ValueError):
-            da_target_type_code("bad_type")
+            da_target_type("bad_type")
 
     @chex.all_variants(with_pmap=False)
     def test_anneal(self):
-        run = lambda code: annealed_log_target_jax(
-            logl_full=self.logl_full,
-            logl_approx=self.logl_approx,
-            logl_approx_base=self.logl_base,
-            logp=self.logp,
-            beta=self.beta,
-            type_code=code,
-            start_from_approx=False,
-            max_approx_anneal=self.max_a,
-        )
+        def run(code):
+            return annealed_log_target_jax(
+                logl_full=self.logl_full,
+                logl_approx=self.logl_approx,
+                logl_approx_base=self.logl_base,
+                logp=self.logp,
+                beta=self.beta,
+                type_code=code,
+                start_from_approx=False,
+                max_approx_anneal=self.max_a,
+            )
 
         approx_post = self.variant(run)(TYPE_APPROX_POSTERIOR)
         approx_like = self.variant(run)(TYPE_APPROX_LIKELIHOOD)
@@ -117,16 +122,18 @@ class DALikelihoodTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_sfa(self):
-        run = lambda code: annealed_log_target_jax(
-            logl_full=self.logl_full,
-            logl_approx=self.logl_approx,
-            logl_approx_base=self.logl_base,
-            logp=self.logp,
-            beta=self.beta,
-            type_code=code,
-            start_from_approx=True,
-            max_approx_anneal=self.max_a,
-        )
+
+        def run(code):
+            return annealed_log_target_jax(
+                logl_full=self.logl_full,
+                logl_approx=self.logl_approx,
+                logl_approx_base=self.logl_base,
+                logp=self.logp,
+                beta=self.beta,
+                type_code=code,
+                start_from_approx=True,
+                max_approx_anneal=self.max_a,
+            )
 
         approx_post = self.variant(run)(TYPE_APPROX_POSTERIOR)
         full_post = self.variant(run)(TYPE_FULL_POSTERIOR)
