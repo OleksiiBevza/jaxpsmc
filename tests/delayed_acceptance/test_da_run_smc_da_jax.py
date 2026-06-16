@@ -11,7 +11,11 @@ from jaxpsmc.delayed_acceptance.da_run_smc_da_jax import (
     smc_da_step_jax,
 )
 from jaxpsmc.geometry.geometry_jax import Geometry
-from jaxpsmc.particles_jax import ParticlesStep, init_particles_state_jax, record_step_jax
+from jaxpsmc.particles_jax import (
+    ParticlesStep,
+    init_particles_state_jax,
+    record_step_jax,
+)
 from jaxpsmc.sampler.sampler_jax import IdentityFlowJAX
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
 
@@ -86,7 +90,7 @@ class RunSMCDATest(chex.TestCase):
         self.flow = IdentityFlowJAX(self.n_dim)
         self.cfg = init_bounds_config_jax(self.n_dim, scale=False)
         self.masks = masks_jax(self.cfg["low"], self.cfg["high"])
-   
+
     def _step(self, logl, beta, logz):
         u = jnp.array([[0.0], [1.0]], dtype=self.dtype)
         z = jnp.zeros((2,), dtype=self.dtype)
@@ -114,7 +118,7 @@ class RunSMCDATest(chex.TestCase):
         state = record_step_jax(state, self._step([0.0, 0.0], 0.0, 0.0))
         state = record_step_jax(state, self._step([1.0, 2.0], 0.5, 0.1))
         return state
-   
+
     def _geom(self):
         return Geometry(
             normal_mean=jnp.zeros((1,), dtype=self.dtype),
@@ -123,7 +127,7 @@ class RunSMCDATest(chex.TestCase):
             t_cov=jnp.eye(1, dtype=self.dtype),
             t_nu=jnp.array(10.0, dtype=self.dtype),
         )
-   
+
     def _cur(self, beta=0.5):
         u = jnp.array([[0.0], [1.0]], dtype=self.dtype)
 
@@ -183,8 +187,8 @@ class RunSMCDATest(chex.TestCase):
             loglike_single_fn=_loglike,
             logprior_fn=_logprior,
         )
-    
-    def _assert_active_step_output(
+
+    def _assert_active_step(
         self,
         *,
         carry0,
@@ -281,7 +285,7 @@ class RunSMCDATest(chex.TestCase):
         np.testing.assert_allclose(stats.calls, carry0.current_particles["calls"])
 
     @chex.all_variants(with_pmap=False)
-    def test_step_truncated_persistent(self):
+    def test_truncated_persistent(self):
         carry0 = self._carry(beta=0.5)
 
         carry1, stats = self.variant(
@@ -295,7 +299,7 @@ class RunSMCDATest(chex.TestCase):
             )
         )(carry0)
 
-        self._assert_active_step_output(
+        self._assert_active_step(
             carry0=carry0,
             carry1=carry1,
             stats=stats,
@@ -317,7 +321,7 @@ class RunSMCDATest(chex.TestCase):
             )
         )(carry0)
 
-        self._assert_active_step_output(
+        self._assert_active_step(
             carry0=carry0,
             carry1=carry1,
             stats=stats,
@@ -325,7 +329,7 @@ class RunSMCDATest(chex.TestCase):
         )
 
     @chex.all_variants(with_pmap=False)
-    def test_step_persistent_with_small_keep_max(self):
+    def test_persistent_small_max(self):
         carry0 = self._carry(beta=0.5)
 
         carry1, stats = self.variant(
@@ -341,14 +345,14 @@ class RunSMCDATest(chex.TestCase):
             )
         )(carry0)
 
-        self._assert_active_step_output(
+        self._assert_active_step(
             carry0=carry0,
             carry1=carry1,
             stats=stats,
             expected_steps=2,
         )
 
-    def test_step_rejects_invalid_sampling_mode(self):
+    def test_reject_invalid_mode(self):
         carry0 = self._carry(beta=0.5)
 
         with self.assertRaises(ValueError):
@@ -466,7 +470,7 @@ class RunSMCDATest(chex.TestCase):
         assert bool(jnp.isfinite(stats.ess[0]))
 
     @chex.all_variants(with_pmap=False)
-    def test_scan_persistent_with_small_keep_max(self):
+    def test_scan_persistent(self):
         carry0 = self._carry(beta=0.5)
 
         carry1, stats = self.variant(
@@ -495,7 +499,7 @@ class RunSMCDATest(chex.TestCase):
         assert bool(jnp.isfinite(stats.ess[0]))
 
     @chex.all_variants(with_pmap=False)
-    def test_persistent_and_truncated_both_produce_valid_diagnostics(self):
+    def test_pers_trunc_valid_diagnostics(self):
         carry0 = self._carry(beta=0.5)
 
         carry_trunc, stats_trunc = self.variant(
@@ -522,20 +526,23 @@ class RunSMCDATest(chex.TestCase):
             )
         )(carry0)
 
-        self._assert_active_step_output(
+        self._assert_active_step(
             carry0=carry0,
             carry1=carry_trunc,
             stats=stats_trunc,
             expected_steps=1,
         )
-        self._assert_active_step_output(
+        self._assert_active_step(
             carry0=carry0,
             carry1=carry_persist,
             stats=stats_persist,
             expected_steps=1,
         )
 
-        assert carry_trunc.current_particles["u"].shape == carry_persist.current_particles["u"].shape
+        assert (
+            carry_trunc.current_particles["u"].shape
+            == carry_persist.current_particles["u"].shape
+        )
         assert stats_trunc.beta.shape == stats_persist.beta.shape
         assert stats_trunc.logz.shape == stats_persist.logz.shape
         assert stats_trunc.ess.shape == stats_persist.ess.shape

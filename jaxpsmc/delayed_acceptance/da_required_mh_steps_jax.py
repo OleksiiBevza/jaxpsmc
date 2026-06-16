@@ -39,6 +39,7 @@ class RequiredMHSteps(NamedTuple):
         stores the MH step estimate, the capped iteration count,
         and diagnostic values used to make the decision.
     """
+
     prob: Array
     iter: Array
     sufficient_iter: Array

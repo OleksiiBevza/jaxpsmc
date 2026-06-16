@@ -49,6 +49,7 @@ class SMCDACarry(NamedTuple):
     SMCDACarry:
         stores all values that must be carried between SMC-DA iterations.
     """
+
     key: Array
     state: ParticlesState
     current_particles: Dict[str, Array]
@@ -87,6 +88,7 @@ class SMCDAStepStats(NamedTuple):
     SMCDAStepStats:
         stores compact diagnostics for one SMC-DA step.
     """
+
     active: Array
     beta: Array
     logz: Array
@@ -191,7 +193,9 @@ def smc_da_step_jax(
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-    mutation_fn: Callable[..., Tuple[Array, Dict[str, Array], Dict[str, Array]]] = mutate,
+    mutation_fn: Callable[
+        ..., Tuple[Array, Dict[str, Array], Dict[str, Array]]
+    ] = mutate,
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
     logprior_fn: Callable[[Array], Array],
 ) -> Tuple[SMCDACarry, SMCDAStepStats]:
@@ -275,16 +279,13 @@ def smc_da_step_jax(
     key, state, cur, geom, n_eff, it = carry
     dtype = state.logl.dtype
 
-    active = (
-        not_termination_jax(
-            state,
-            beta_current=cur["beta"],
-            n_total=n_total,
-            metric_code=metric_id,
-            n_active=n_active_i32,
-        )
-        & (it < jnp.asarray(n_outer_max_steps, dtype=it.dtype))
-    )
+    active = not_termination_jax(
+        state,
+        beta_current=cur["beta"],
+        n_total=n_total,
+        metric_code=metric_id,
+        n_active=n_active_i32,
+    ) & (it < jnp.asarray(n_outer_max_steps, dtype=it.dtype))
 
     def do_step(op: SMCDACarry) -> Tuple[SMCDACarry, SMCDAStepStats]:
         """
@@ -345,9 +346,7 @@ def smc_da_step_jax(
             theta_i, logdet_i = flow.bijection.transform_and_log_det(ui, None)
             return theta_i, logdet_i
 
-        theta_keep, _ = jax.vmap(u_to_theta, in_axes=0, out_axes=(0, 0))(
-            cur_rw["u"]
-        )
+        theta_keep, _ = jax.vmap(u_to_theta, in_axes=0, out_axes=(0, 0))(cur_rw["u"])
 
         geom_new, key_c, _ = geometry_fit_jax(
             geom_c,
@@ -405,12 +404,12 @@ def smc_da_step_jax(
 
         state_new = record_step_jax(state_c, step)
 
-        #cur_next = {
+        # cur_next = {
         #    **mutated,
         #    "beta": cur_rw["beta"],
         #    "calls": mutated["calls"],
         #    "proposal_scale": mutated["proposal_scale"],
-        #}
+        # }
 
         cur_next = {
             "u": mutated["u"],
@@ -518,11 +517,13 @@ def run_smc_da_scan_jax(
     bins: int,
     bisect_steps: int,
     trim_ess: float,
-    sampling_mode: str = "truncated_persistent",    
+    sampling_mode: str = "truncated_persistent",
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-    mutation_fn: Callable[..., Tuple[Array, Dict[str, Array], Dict[str, Array]]] = mutate,
+    mutation_fn: Callable[
+        ..., Tuple[Array, Dict[str, Array], Dict[str, Array]]
+    ] = mutate,
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
     logprior_fn: Callable[[Array], Array],
 ) -> Tuple[SMCDACarry, SMCDAStepStats]:
@@ -596,6 +597,7 @@ def run_smc_da_scan_jax(
     Tuple[SMCDACarry, SMCDAStepStats]:
         final carry and statistics for all scan steps.
     """
+
     def scan_body(
         carry: SMCDACarry,
         _: Array,

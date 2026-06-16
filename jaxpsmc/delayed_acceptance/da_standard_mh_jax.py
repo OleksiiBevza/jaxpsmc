@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 try:
     from .da_likelihood_interface_jax import TYPE_FULL_POSTERIOR
-except Exception:  
+except Exception:
     TYPE_FULL_POSTERIOR = jnp.int32(3)
 
 
@@ -56,6 +56,7 @@ class StandardMHStep(NamedTuple):
         stores MH decisions, probabilities, distances, log-targets,
         and evaluation counts for one batch of proposals.
     """
+
     key: Array
     accept: Array
     prob_accept: Array
@@ -112,7 +113,7 @@ def _proposal_distance_jax(
 
 
 @jax.jit
-def standard_mh_step_from_logtargets_jax(
+def standard_mh_step_logtargets_jax(
     key: Array,
     new_particles: Array,
     old_particles: Array,
@@ -176,9 +177,7 @@ def standard_mh_step_from_logtargets_jax(
         jnp.asarray(0.0, dtype=dtype),
     )
 
-    log_u = jnp.log(
-        jax.random.uniform(subkey, shape=prob_accept.shape, dtype=dtype)
-    )
+    log_u = jnp.log(jax.random.uniform(subkey, shape=prob_accept.shape, dtype=dtype))
     accept = log_u < log_prob_accept
 
     proposal_dist = _proposal_distance_jax(
@@ -223,7 +222,7 @@ def standard_mh_step_jax(
 
     The function evaluates the selected log target at proposed particles.
     It also evaluates the same log target at old particles.
-    It then calls standard_mh_step_from_logtargets_jax
+    It then calls standard_mh_step_logtargets_jax
     to perform the accept/reject decision.
 
     The returned call counts are the sum of the calls used for
@@ -267,7 +266,7 @@ def standard_mh_step_jax(
         type_code=type_code,
     )
 
-    core = standard_mh_step_from_logtargets_jax(
+    core = standard_mh_step_logtargets_jax(
         key=key,
         new_particles=new_particles,
         old_particles=old_particles,

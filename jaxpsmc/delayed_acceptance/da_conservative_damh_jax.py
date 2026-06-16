@@ -59,6 +59,7 @@ class ConservativeDAMHStep(NamedTuple):
         stores all acceptance decisions, probabilities, log-ratios,
         distances, and full-evaluation counts for one DAMH step.
     """
+
     key: Array
     pre_accept: Array
     stage2_accept: Array
@@ -304,7 +305,7 @@ def conservative_damh_step_jax(
 
 
 @jax.jit
-def conservative_damh_step_from_parts_jax(
+def conservative_damh_step_parts_jax(
     key: Array,
     new_particles: Array,
     old_particles: Array,

@@ -8,7 +8,7 @@ from absl.testing import absltest
 
 from jaxpsmc.delayed_acceptance.da_standard_mh_jax import (
     _proposal_distance_jax,
-    standard_mh_step_from_logtargets_jax,
+    standard_mh_step_logtargets_jax,
     standard_mh_step_jax,
 )
 
@@ -24,10 +24,9 @@ def _log_target_fn(particles, beta, type_code):
     n = jnp.asarray(particles.shape[0], dtype=jnp.int32)
     dtype = jnp.result_type(particles, beta, jnp.asarray(1.0))
 
-    value = (
-        jnp.asarray(beta, dtype=dtype) * jnp.sum(particles, axis=1)
-        + jnp.asarray(type_code, dtype=dtype) * jnp.asarray(0.01, dtype=dtype)
-    )
+    value = jnp.asarray(beta, dtype=dtype) * jnp.sum(particles, axis=1) + jnp.asarray(
+        type_code, dtype=dtype
+    ) * jnp.asarray(0.01, dtype=dtype)
 
     return _TargetEval(
         value=value,
@@ -90,13 +89,11 @@ class StandardMHTest(chex.TestCase):
         )
         cov = jnp.eye(2)
 
-        new_logtarget = jnp.array(
-            [1.0, -2.0, 0.0, jnp.nan, jnp.inf, -jnp.inf]
-        )
+        new_logtarget = jnp.array([1.0, -2.0, 0.0, jnp.nan, jnp.inf, -jnp.inf])
         old_logtarget = jnp.zeros((6,))
 
         out = self.variant(
-            lambda key: standard_mh_step_from_logtargets_jax(
+            lambda key: standard_mh_step_logtargets_jax(
                 key=key,
                 new_particles=new_particles,
                 old_particles=old_particles,
@@ -200,14 +197,15 @@ class StandardMHTest(chex.TestCase):
         new_logtarget = jnp.array([0.5, -0.5, 1.0])
         old_logtarget = jnp.zeros((3,))
 
-        run = lambda key: standard_mh_step_from_logtargets_jax(
-            key=key,
-            new_particles=new_particles,
-            old_particles=old_particles,
-            cov=cov,
-            new_logtarget=new_logtarget,
-            old_logtarget=old_logtarget,
-        )
+        def run(key):
+            return standard_mh_step_logtargets_jax(
+                key=key,
+                new_particles=new_particles,
+                old_particles=old_particles,
+                cov=cov,
+                new_logtarget=new_logtarget,
+                old_logtarget=old_logtarget,
+            )
 
         out1 = self.variant(run)(self.key)
         out2 = self.variant(run)(self.key)
@@ -228,7 +226,7 @@ class StandardMHTest(chex.TestCase):
         old_logtarget = jnp.zeros((4,))
 
         out = self.variant(
-            lambda key: standard_mh_step_from_logtargets_jax(
+            lambda key: standard_mh_step_logtargets_jax(
                 key=key,
                 new_particles=new_particles,
                 old_particles=old_particles,

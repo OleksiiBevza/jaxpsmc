@@ -34,6 +34,7 @@ class TuningSelection(NamedTuple):
         stores the selected index, all costs, the minimum cost,
         and whether the selection is usable.
     """
+
     index: Array
     costs: Array
     min_cost: Array
@@ -99,9 +100,7 @@ def da_mh_costs_jax(
     full_cost = jnp.asarray(full_cost, dtype=dtype)
     valid_mask = jnp.asarray(valid_mask, dtype=bool)
 
-    costs = min_steps * (
-        surrogate_cost + surrogate_acceptance * full_cost
-    )
+    costs = min_steps * (surrogate_cost + surrogate_acceptance * full_cost)
 
     finite = (
         jnp.isfinite(costs)
