@@ -7,8 +7,8 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from ..tools_jax import *
-from ..student_jax import *
+from ..student_jax import fit_mvstud_jax
+from ..tools_jax import systematic_resample_jax
 
 
 

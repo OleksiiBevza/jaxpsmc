@@ -40,7 +40,7 @@ class DiliGeometryTest(chex.TestCase):
         np.testing.assert_allclose(jnp.sum(out), 1.0)
         assert out.dtype == weights.dtype
 
-    def test_bad_weights_become_uniform(self):
+    def test_bad_weights(self):
         cases = [
             jnp.asarray([0.0, 0.0, 0.0], dtype=jnp.float64),
             jnp.asarray([1.0, -1.0, 2.0], dtype=jnp.float64),
@@ -223,7 +223,7 @@ class DiliGeometryTest(chex.TestCase):
         assert bool(jnp.all(jnp.isfinite(out.cov_ref)))
 
     @chex.all_variants(with_pmap=False)
-    def test_bad_gnh_is_projected(self):
+    def test_bad_gnh_projected(self):
         theta = jnp.asarray(
             [
                 [0.0, 0.0],
@@ -255,7 +255,7 @@ class DiliGeometryTest(chex.TestCase):
         assert bool(jnp.all(jnp.linalg.eigvalsh(out.cov_ref) > 0.0))
 
     @chex.all_variants(with_pmap=False)
-    def test_bad_weights_use_uniform_center(self):
+    def test_bad_weights_center(self):
         theta = jnp.asarray(
             [
                 [0.0, 0.0],
