@@ -5,9 +5,14 @@ from typing import Callable, Mapping, Tuple, Any, Optional, Dict
 import jax
 import jax.numpy as jnp
 
-from ..scaler_jax import *
+from ..scaler_jax import (
+    apply_boundary_conditions_x_jax,
+    forward_jax,
+    inverse_jax,
+)
 from ..delayed_acceptance.da_conservative_damh_jax import (
-    conservative_damh_step_jax,)
+    conservative_damh_step_jax,
+)
 from .flow_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
 
 Array = jax.Array
@@ -192,10 +197,7 @@ def _li_pcn_proposal(
     z = diff @ eigvecs
 
     eps = jax.random.normal(key, shape=z.shape, dtype=dtype)
-    z_prime = (
-        a_dir[None, :] * z
-        + sigma_dir[None, :] * jnp.sqrt(var_dir)[None, :] * eps
-    )
+    z_prime = a_dir[None, :] * z + sigma_dir[None, :] * jnp.sqrt(var_dir)[None, :] * eps
 
     theta_prime = mu[None, :] + z_prime @ eigvecs.T
     return theta_prime
@@ -213,7 +215,6 @@ def likelihood_informed_pcn_jax(
     logdetj_flow: Array,
     blobs: Array,
     beta: Array,
-
     # functions
     loglike_fn: Callable[[Array], Tuple[Array, Array]],
     loglike_approx_fn: Callable[[Array], Array],
@@ -221,11 +222,9 @@ def likelihood_informed_pcn_jax(
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-
     # empirical LI geometry
     geom_mu: Array,
     geom_cov: Array,
-
     # options
     n_max: int,
     n_steps: int,
@@ -433,6 +432,7 @@ def likelihood_informed_pcn_jax(
         Tuple[Array, Array]:
             log-likelihood value and blob output.
         """
+
         def _do(z: Array) -> Tuple[Array, Array]:
             ll, bb = loglike_fn(z)
             return ll, bb
@@ -461,6 +461,7 @@ def likelihood_informed_pcn_jax(
         Array:
             approximate log-likelihood value, or -inf.
         """
+
         def _do(z: Array) -> Array:
             return jnp.asarray(loglike_approx_fn(z), dtype=xi.dtype)
 
@@ -486,7 +487,7 @@ def likelihood_informed_pcn_jax(
         --------
         Array:
             approximate log-likelihood values, shape (N,).
-        """        
+        """
         return jax.vmap(_approx_or_neginf, in_axes=(0, 0), out_axes=0)(
             x,
             finite_current,
@@ -518,8 +519,24 @@ def likelihood_informed_pcn_jax(
     )
 
     carry0 = (
-        key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx0, logp, blobs,
-        mu0, sigma0, logp2_best0, cnt0, i0, calls0, accept0, done0,
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx0,
+        logp,
+        blobs,
+        mu0,
+        sigma0,
+        logp2_best0,
+        cnt0,
+        i0,
+        calls0,
+        accept0,
+        done0,
     )
 
     max_sigma_cap = jnp.minimum(
@@ -574,8 +591,24 @@ def likelihood_informed_pcn_jax(
             updated mutation-loop state.
         """
         (
-            key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-            mu, sigma, logp2_best, cnt, i, calls, accept, done,
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i,
+            calls,
+            accept,
+            done,
         ) = carry
 
         i1 = i + jnp.asarray(1, dtype=i.dtype)
@@ -799,21 +832,54 @@ def likelihood_informed_pcn_jax(
         logp2_best = jnp.where(improved, logp2_new, logp2_best)
 
         thresh = jnp.asarray(n_steps, dtype=dtype) * jnp.power(
-            (jnp.asarray(2.38, dtype=dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=dtype))) / sigma,
+            (jnp.asarray(2.38, dtype=dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=dtype)))
+            / sigma,
             jnp.asarray(2.0, dtype=dtype),
         )
         done = cnt.astype(dtype) >= thresh
 
         return (
-            key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-            mu, sigma, logp2_best, cnt, i1, calls, accept, done,
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i1,
+            calls,
+            accept,
+            done,
         )
 
     carry_f = jax.lax.while_loop(cond_fn, body_fn, carry0)
 
     (
-        key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-        mu, sigma, logp2_best, cnt, i, calls, accept, done,
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx,
+        logp,
+        blobs,
+        mu,
+        sigma,
+        logp2_best,
+        cnt,
+        i,
+        calls,
+        accept,
+        done,
     ) = carry_f
 
     return {

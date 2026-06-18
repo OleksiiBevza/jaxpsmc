@@ -5,10 +5,14 @@ from typing import Callable, Mapping, Tuple, Any, Optional, Dict
 import jax
 import jax.numpy as jnp
 
-from ..geometry.dili_geometry_jax import DILIPCNGeometry
-from ..scaler_jax import *
+from ..scaler_jax import (
+    apply_boundary_conditions_x_jax,
+    forward_jax,
+    inverse_jax,
+)
 from ..delayed_acceptance.da_conservative_damh_jax import (
-    conservative_damh_step_jax,)
+    conservative_damh_step_jax,
+)
 from .flow_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
 
 Array = jax.Array
@@ -31,9 +35,9 @@ def _standard_normal_log_reference(theta: Array, center: Array) -> Array:
     Array:
         Log reference density for each particle, shape (N,).
     """
-    # shift particles so that Gaussian reference is centered at `center`  
+    # shift particles so that Gaussian reference is centered at `center`
     diff = theta - center[None, :]
-    # return -0.5 * ||theta - center||^2 for each particle    
+    # return -0.5 * ||theta - center||^2 for each particle
     return -0.5 * jnp.sum(diff * diff, axis=1)
 
 
@@ -91,8 +95,12 @@ def _dili_li_prior_proposal(
 
     # build separate proposal scales for LIS and its complement
     # scale is clipped to keep the CN coefficients numerically stable
-    sigma_lis = jnp.clip(jnp.abs(sigma * jnp.asarray(dili_lis_scale, dtype=dtype)), 1e-12, 0.99)
-    sigma_cs = jnp.clip(jnp.abs(sigma * jnp.asarray(dili_cs_scale, dtype=dtype)), 1e-12, 0.99)
+    sigma_lis = jnp.clip(
+        jnp.abs(sigma * jnp.asarray(dili_lis_scale, dtype=dtype)), 1e-12, 0.99
+    )
+    sigma_cs = jnp.clip(
+        jnp.abs(sigma * jnp.asarray(dili_cs_scale, dtype=dtype)), 1e-12, 0.99
+    )
 
     # convert proposal scales to CN time-step parameters
     tau_lis = sigma_lis * sigma_lis
@@ -120,7 +128,7 @@ def _dili_li_prior_proposal(
     diff = theta - center[None, :]
 
     # project particles into the LIS
-    z_lis = diff @ basis                       # (N, r)
+    z_lis = diff @ basis  # (N, r)
     # draw independent Gaussian noise in the LIS
     eps_lis = jax.random.normal(key_lis, shape=z_lis.shape, dtype=dtype)
     # apply CN update in LIS coordinates
@@ -229,7 +237,7 @@ def _li_pcn_proposal(
     sigma_cs = jnp.clip(jnp.abs(sigma * cs_scale), 1e-12, 0.99)
     # pick scale per eigen direction
     sigma_dir = jnp.where(active, sigma_lis, sigma_cs)
-    # standard pCN autoregressive coefficient    
+    # standard pCN autoregressive coefficient
     a_dir = jnp.sqrt(jnp.maximum(1.0 - sigma_dir * sigma_dir, 0.0))
     # move particles to centered eigen coordinates
     diff = theta - mu[None, :]
@@ -237,10 +245,7 @@ def _li_pcn_proposal(
     # draw independent Gaussian noise in eigen coordinates
     eps = jax.random.normal(key, shape=z.shape, dtype=dtype)
     # apply directionwise pCN update
-    z_prime = (
-        a_dir[None, :] * z
-        + sigma_dir[None, :] * jnp.sqrt(var_dir)[None, :] * eps
-    )
+    z_prime = a_dir[None, :] * z + sigma_dir[None, :] * jnp.sqrt(var_dir)[None, :] * eps
     # map back to theta space
     theta_prime = mu[None, :] + z_prime @ eigvecs.T
     return theta_prime
@@ -258,7 +263,6 @@ def dili_pcn_jax(
     logdetj_flow: Array,
     blobs: Array,
     beta: Array,
-
     # functions
     loglike_fn: Callable[[Array], Tuple[Array, Array]],
     loglike_approx_fn: Callable[[Array], Array],
@@ -266,20 +270,17 @@ def dili_pcn_jax(
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-
     # Hessian/GNH-based DILI geometry
     dili_center: Array,
     dili_basis: Array,
     dili_post_var: Array,
     dili_cov_ref: Array,
-
     # mutation loop options
     n_max: int,
     n_steps: int,
     proposal_scale: Array,
     dili_lis_scale: float = 1.0,
     dili_cs_scale: float = 1.0,
-
     # delayed-acceptance controls
     use_delayed_acceptance: Array = jnp.asarray(False),
     da_c_const: Array = jnp.asarray(0.01),
@@ -410,7 +411,7 @@ def dili_pcn_jax(
     logdetj_flow = logdetj_flow0
 
     # initialize adaptive proposal state
-    mu0 = dili_center  
+    mu0 = dili_center
     sigma0 = jnp.minimum(jnp.abs(proposal_scale), jnp.asarray(0.99, dtype=dtype))
     # track best average untempered target value for stopping
     logp2_best0 = jnp.mean(logl + logp)
@@ -470,6 +471,7 @@ def dili_pcn_jax(
         Tuple[Array, Array]:
             Exact log-likelihood value and blob output.
         """
+
         # evaluate exact likelihood only when proposed point is valid
         def _do(z: Array) -> Tuple[Array, Array]:
             """
@@ -487,7 +489,7 @@ def dili_pcn_jax(
             """
             ll, bb = loglike_fn(z)
             return ll, bb
-        
+
         # if invalid, return -inf likelihood and an empty blob
         def _skip(z: Array) -> Tuple[Array, Array]:
             """
@@ -502,7 +504,7 @@ def dili_pcn_jax(
             -------
             Tuple[Array, Array]:
                 ``-inf`` likelihood and a zero-like blob.
-            """    
+            """
             return jnp.asarray(-jnp.inf, dtype=xi.dtype), blob_template
 
         return jax.lax.cond(ok, _do, _skip, xi)
@@ -527,6 +529,7 @@ def dili_pcn_jax(
         Array:
             Approximate log-likelihood value, or ``-inf``.
         """
+
         # evaluate approximate likelihood only when needed and valid
         def _do(z: Array) -> Array:
             """
@@ -561,7 +564,7 @@ def dili_pcn_jax(
             return jnp.asarray(-jnp.inf, dtype=xi.dtype)
 
         return jax.lax.cond(ok, _do, _skip, xi)
-    
+
     # current particles are valid only if both prior and likelihood are finite
     finite_current = jnp.isfinite(logp) & jnp.isfinite(logl)
 
@@ -614,11 +617,27 @@ def dili_pcn_jax(
 
     # carry object for lax.while_loop
     carry0 = (
-        key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx0, logp, blobs,
-        mu0, sigma0, logp2_best0, cnt0, i0, calls0, accept0, done0,
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx0,
+        logp,
+        blobs,
+        mu0,
+        sigma0,
+        logp2_best0,
+        cnt0,
+        i0,
+        calls0,
+        accept0,
+        done0,
     )
 
-    # adaptive proposal scale: 2.38 / sqrt(D) 
+    # adaptive proposal scale: 2.38 / sqrt(D)
     max_sigma_cap = jnp.minimum(
         jnp.asarray(2.38, dtype=dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=dtype)),
         jnp.asarray(0.99, dtype=dtype),
@@ -664,8 +683,24 @@ def dili_pcn_jax(
         """
         # unpack current mutation loop state
         (
-            key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-            mu, sigma, logp2_best, cnt, i, calls, accept, done,
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i,
+            calls,
+            accept,
+            done,
         ) = carry
 
         # iteration counter
@@ -912,15 +947,32 @@ def dili_pcn_jax(
 
         # stop earlier if chain has not improved
         thresh = jnp.asarray(n_steps, dtype=dtype) * jnp.power(
-            (jnp.asarray(2.38, dtype=dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=dtype))) / sigma,
+            (jnp.asarray(2.38, dtype=dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=dtype)))
+            / sigma,
             jnp.asarray(2.0, dtype=dtype),
         )
         done = cnt.astype(dtype) >= thresh
 
         # return updated loop state
         return (
-            key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-            mu, sigma, logp2_best, cnt, i1, calls, accept, done,
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i1,
+            calls,
+            accept,
+            done,
         )
 
     # run mutation loop using JAX control flow
@@ -928,8 +980,24 @@ def dili_pcn_jax(
 
     # unpack final loop state
     (
-        key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-        mu, sigma, logp2_best, cnt, i, calls, accept, done,
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx,
+        logp,
+        blobs,
+        mu,
+        sigma,
+        logp2_best,
+        cnt,
+        i,
+        calls,
+        accept,
+        done,
     ) = carry_f
 
     # return updated sampler state and diagnostics

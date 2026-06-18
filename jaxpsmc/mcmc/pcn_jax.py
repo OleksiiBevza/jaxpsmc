@@ -5,20 +5,23 @@ from typing import Callable, Mapping, Tuple, Any, Optional, Dict
 import jax
 import jax.numpy as jnp
 
-from ..scaler_jax import *
+from ..scaler_jax import (
+    apply_boundary_conditions_x_jax,
+    forward_jax,
+    inverse_jax,
+)
 from ..delayed_acceptance.da_conservative_damh_jax import (
-    conservative_damh_step_jax,)
+    conservative_damh_step_jax,
+)
 from .flow_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
 
 
 Array = jax.Array
 
- 
 
 def preconditioned_pcn_jax(
     key: Array,
     *,
-
     # current state (all arrays; no None)
     u: Array,
     x: Array,
@@ -28,7 +31,6 @@ def preconditioned_pcn_jax(
     logdetj_flow: Array,
     blobs: Array,
     beta: Array,
-
     # functions
     loglike_fn: Callable[[Array], Tuple[Array, Array]],
     loglike_approx_fn: Callable[[Array], Array],
@@ -36,12 +38,10 @@ def preconditioned_pcn_jax(
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-
     # geometry (Student-t)
     geom_mu: Array,
     geom_cov: Array,
     geom_nu: Array,
-
     # options
     n_max: int,
     n_steps: int,
@@ -281,6 +281,7 @@ def preconditioned_pcn_jax(
             log-likelihood value and blob output.
             Invalid proposals receive -inf and a zero blob.
         """
+
         def _do(z: Array) -> Tuple[Array, Array]:
             """
             Evaluates the full likelihood for one valid particle.
@@ -319,9 +320,9 @@ def preconditioned_pcn_jax(
             """
             # keep shapes consistent when likelihood is skipped
             return jnp.asarray(-jnp.inf, dtype=xi.dtype), blob_template
+
         # choose between real likelihood and fallback branch.
         return jax.lax.cond(ok, _do, _skip, xi)
-
 
     def _approx_or_neginf(xi: Array, ok: Array) -> Array:
         """
@@ -344,6 +345,7 @@ def preconditioned_pcn_jax(
             approximate log-likelihood if ok is True.
             Otherwise, -inf.
         """
+
         def _do(z: Array) -> Array:
             """
             Evaluates the approximate likelihood for one valid particle.
@@ -378,7 +380,7 @@ def preconditioned_pcn_jax(
             return jnp.asarray(-jnp.inf, dtype=xi.dtype)
 
         return jax.lax.cond(ok, _do, _skip, xi)
-    
+
     finite_current = jnp.isfinite(logp) & jnp.isfinite(logl)
 
     def _init_approx(_):
@@ -427,17 +429,35 @@ def preconditioned_pcn_jax(
         _init_approx,
         _zero_approx,
         operand=None,
-    )    
+    )
 
     # pack loop state into one tuple for lax.while_loop.
     carry0 = (
-        key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx0, logp, blobs,
-        mu, sigma0, logp2_best, cnt0, i0, calls0, accept0, done0
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx0,
+        logp,
+        blobs,
+        mu,
+        sigma0,
+        logp2_best,
+        cnt0,
+        i0,
+        calls0,
+        accept0,
+        done0,
     )
 
     # cap adaptive proposal scale
-    max_sigma_cap = jnp.minimum(jnp.asarray(2.38, dtype=u.dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=u.dtype)),
-                                jnp.asarray(0.99, dtype=u.dtype))
+    max_sigma_cap = jnp.minimum(
+        jnp.asarray(2.38, dtype=u.dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=u.dtype)),
+        jnp.asarray(0.99, dtype=u.dtype),
+    )
 
     def cond_fn(carry):
         """
@@ -486,8 +506,26 @@ def preconditioned_pcn_jax(
             updated loop state after one pCN iteration.
         """
         # unpack current loop state
-        (key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-         mu, sigma, logp2_best, cnt, i, calls, accept, done) = carry        
+        (
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i,
+            calls,
+            accept,
+            done,
+        ) = carry
 
         # move to the next inner iteration
         i1 = i + jnp.asarray(1, dtype=i.dtype)
@@ -497,7 +535,9 @@ def preconditioned_pcn_jax(
         diff = theta - mu
         quad = _quad(diff)
         # draw Student-t scaling factors
-        a = (jnp.asarray(n_dim, dtype=u.dtype) + geom_nu) / jnp.asarray(2.0, dtype=u.dtype)
+        a = (jnp.asarray(n_dim, dtype=u.dtype) + geom_nu) / jnp.asarray(
+            2.0, dtype=u.dtype
+        )
         z = jax.random.gamma(k_gamma, a, shape=(n_walkers,))  # unit scale
         s = (geom_nu + quad) / (jnp.asarray(2.0, dtype=u.dtype) * z)
         # draw Gaussian noise in geometry covariance
@@ -509,7 +549,6 @@ def preconditioned_pcn_jax(
             + jnp.sqrt(jnp.asarray(1.0, dtype=u.dtype) - sigma * sigma) * diff
             + sigma * jnp.sqrt(s)[:, None] * noise
         )
-
 
         def _t2u_single(ti: Array) -> Tuple[Array, Array]:
             """
@@ -531,8 +570,11 @@ def preconditioned_pcn_jax(
             """
             # apply inverse flow to one walker
             return _flow_theta_to_u_jax(flow, ti, condition)
+
         # map all walkers from theta-space back to u-space
-        u_prime, logdetj_flow_prime = jax.vmap(_t2u_single, in_axes=0, out_axes=(0, 0))(theta_prime)
+        u_prime, logdetj_flow_prime = jax.vmap(_t2u_single, in_axes=0, out_axes=(0, 0))(
+            theta_prime
+        )
 
         # apply scaler inverse to move from u-space to x-space.
         x_prime, logdetj_prime = inverse_jax(u_prime, scaler_cfg, scaler_masks)
@@ -549,7 +591,9 @@ def preconditioned_pcn_jax(
         finite0 = jnp.isfinite(logdetj_prime) & jnp.all(jnp.isfinite(x_prime), axis=1)
 
         # evaluate prior only for finite proposals
-        logp_prime = jax.vmap(_prior_or_neginf, in_axes=(0, 0), out_axes=0)(x_prime, finite0)
+        logp_prime = jax.vmap(_prior_or_neginf, in_axes=(0, 0), out_axes=0)(
+            x_prime, finite0
+        )
         finite1 = finite0 & jnp.isfinite(logp_prime)
 
         # evaluate full likelihood only for proposals that passed the prior step
@@ -600,16 +644,14 @@ def preconditioned_pcn_jax(
             Array:
                 zero vector with the same shape as logl_prime.
             """
-            return jnp.zeros_like(logl_prime)   
-
+            return jnp.zeros_like(logl_prime)
 
         logl_approx_prime = jax.lax.cond(
             jnp.asarray(use_delayed_acceptance),
             _eval_approx_prime,
             _zero_approx_prime,
             operand=None,
-        )  
-   
+        )
 
         # compute quadratic term for the proposal
         diff_prime = theta_prime - mu
@@ -704,7 +746,6 @@ def preconditioned_pcn_jax(
             operand=None,
         )
 
-
         # apply accept/reject updates to all particle values
         theta = jnp.where(accept_mask[:, None], theta_prime, theta)
         u = jnp.where(accept_mask[:, None], u_prime, u)
@@ -715,15 +756,21 @@ def preconditioned_pcn_jax(
         logl = jnp.where(accept_mask, logl_prime, logl)
         logl_approx = jnp.where(accept_mask, logl_approx_prime, logl_approx)
         logp = jnp.where(accept_mask, logp_prime, logp)
-        blobs = jnp.where(accept_mask.reshape((n_walkers,) + (1,) * (blobs.ndim - 1)), blobs_prime, blobs)
+        blobs = jnp.where(
+            accept_mask.reshape((n_walkers,) + (1,) * (blobs.ndim - 1)),
+            blobs_prime,
+            blobs,
+        )
 
         accept = accept_value
 
         # adapt proposal scale toward the target acceptance rate
-        step = jnp.asarray(1.0, dtype=u.dtype) / jnp.power(jnp.asarray(i1 + 1, dtype=u.dtype), jnp.asarray(0.75, dtype=u.dtype))
+        step = jnp.asarray(1.0, dtype=u.dtype) / jnp.power(
+            jnp.asarray(i1 + 1, dtype=u.dtype), jnp.asarray(0.75, dtype=u.dtype)
+        )
         sigma = sigma + step * (accept - jnp.asarray(0.234, dtype=u.dtype))
         sigma = jnp.abs(jnp.minimum(sigma, max_sigma_cap))
-        
+
         # update the running mean in theta-space.
         mu_step = jnp.asarray(1.0, dtype=u.dtype) / jnp.asarray(i1 + 1, dtype=u.dtype)
         mu = mu + mu_step * (jnp.mean(theta, axis=0) - mu)
@@ -731,27 +778,69 @@ def preconditioned_pcn_jax(
         # track whether average objective improved
         logp2_new = jnp.mean(logl + logp)
         improved = logp2_new > logp2_best
-        cnt = jnp.where(improved, jnp.asarray(0, dtype=cnt.dtype), cnt + jnp.asarray(1, dtype=cnt.dtype))
+        cnt = jnp.where(
+            improved,
+            jnp.asarray(0, dtype=cnt.dtype),
+            cnt + jnp.asarray(1, dtype=cnt.dtype),
+        )
         logp2_best = jnp.where(improved, logp2_new, logp2_best)
 
         # stop when no-improvement count reaches the threshold
         thresh = jnp.asarray(n_steps, dtype=u.dtype) * jnp.power(
-            (jnp.asarray(2.38, dtype=u.dtype) / jnp.sqrt(jnp.asarray(n_dim, dtype=u.dtype))) / sigma,
+            (
+                jnp.asarray(2.38, dtype=u.dtype)
+                / jnp.sqrt(jnp.asarray(n_dim, dtype=u.dtype))
+            )
+            / sigma,
             jnp.asarray(2.0, dtype=u.dtype),
         )
         done = cnt.astype(u.dtype) >= thresh
-   
+
         return (
-            key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-            mu, sigma, logp2_best, cnt, i1, calls, accept, done
-        )    
+            key,
+            u,
+            x,
+            theta,
+            logdetj,
+            logdetj_flow,
+            logl,
+            logl_approx,
+            logp,
+            blobs,
+            mu,
+            sigma,
+            logp2_best,
+            cnt,
+            i1,
+            calls,
+            accept,
+            done,
+        )
 
     # run iterative PCN update loop
     carry_f = jax.lax.while_loop(cond_fn, body_fn, carry0)
 
     # unpack the final state
-    (key, u, x, theta, logdetj, logdetj_flow, logl, logl_approx, logp, blobs,
-     mu, sigma, logp2_best, cnt, i, calls, accept, done) = carry_f
+    (
+        key,
+        u,
+        x,
+        theta,
+        logdetj,
+        logdetj_flow,
+        logl,
+        logl_approx,
+        logp,
+        blobs,
+        mu,
+        sigma,
+        logp2_best,
+        cnt,
+        i,
+        calls,
+        accept,
+        done,
+    ) = carry_f
 
     # return updated state and summary values
     return {
@@ -769,5 +858,3 @@ def preconditioned_pcn_jax(
         "calls": calls,
         "proposal_scale": sigma,
     }
-
-
