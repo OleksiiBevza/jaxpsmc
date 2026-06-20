@@ -9,8 +9,6 @@ from ..mcmc.li_pcn_jax import likelihood_informed_pcn_jax
 from ..mcmc.pcn_jax import preconditioned_pcn_jax
 
 
-
-
 #################################################################
 # 3. MUTATE
 #################################################################
@@ -41,14 +39,12 @@ def _log_like(
     Tuple[Array, Array]:
         log-likelihood value and blob output for one particle.
     """
-    
+
     return loglike_single_fn(x_i)
+
 
 # map single-particle likelihood wrapper over a batch of particles
 _log_like_batched = jax.vmap(_log_like, in_axes=(0, None), out_axes=(0, 0))
-
-
-  
 
 
 def mutate(
@@ -56,7 +52,6 @@ def mutate(
     current_particles: Dict[str, Array],
     *,
     use_preconditioned_pcn: Array,
-
     # functions required by mutation kernels
     loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
     loglike_approx_single_fn: Optional[Callable[[Array], Array]] = None,
@@ -64,36 +59,29 @@ def mutate(
     flow: Any,
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
-
     # default pCN geometry
     geom_mu: Array,
     geom_cov: Array,
     geom_nu: Array,
-
     # empirical LI-pCN geometry; if omitted, geom_mu/geom_cov are reused
     li_geom_mu: Optional[Array] = None,
     li_geom_cov: Optional[Array] = None,
-
     # kernel choice
     kernel: str = "pcn",
-
     # empirical LI-pCN options
     li_rank: int = 16,
     li_lis_scale: float = 1.0,
     li_cs_scale: float = 1.0,
     li_var_floor: float = 1e-8,
     li_complement_var: float = 1.0,
-
     # Hessian/GNH-based DILI-pCN geometry
     dili_center: Optional[Array] = None,
     dili_basis: Optional[Array] = None,
     dili_post_var: Optional[Array] = None,
     dili_cov_ref: Optional[Array] = None,
-
     # DILI-pCN options
     dili_lis_scale: float = 1.0,
-    dili_cs_scale: float = 1.0,    
-
+    dili_cs_scale: float = 1.0,
     # choice form
     n_max: int,
     n_steps: int,
@@ -265,8 +253,16 @@ def mutate(
             Result dictionary returned by ``preconditioned_pcn_jax``.
         """
         (
-            key0, u0, x0, logdetj0, logl0, logp0,
-            logdetj_flow0, blobs0, beta0, proposal_scale0,
+            key0,
+            u0,
+            x0,
+            logdetj0,
+            logl0,
+            logp0,
+            logdetj_flow0,
+            blobs0,
+            beta0,
+            proposal_scale0,
         ) = op
 
         return preconditioned_pcn_jax(
@@ -316,8 +312,16 @@ def mutate(
             Result dictionary returned by ``likelihood_informed_pcn_jax``.
         """
         (
-            key0, u0, x0, logdetj0, logl0, logp0,
-            logdetj_flow0, blobs0, beta0, proposal_scale0,
+            key0,
+            u0,
+            x0,
+            logdetj0,
+            logl0,
+            logp0,
+            logdetj_flow0,
+            blobs0,
+            beta0,
+            proposal_scale0,
         ) = op
 
         li_mu = geom_mu if li_geom_mu is None else li_geom_mu
@@ -354,7 +358,7 @@ def mutate(
             da_d_const=da_d_const,
             condition=condition,
         )
-    
+
     def _do_dili_pcn(op):
         """
         Runs the Hessian/GNH-based DILI-pCN mutation branch.
@@ -380,8 +384,16 @@ def mutate(
             If any required DILI geometry object is missing.
         """
         (
-            key0, u0, x0, logdetj0, logl0, logp0,
-            logdetj_flow0, blobs0, beta0, proposal_scale0,
+            key0,
+            u0,
+            x0,
+            logdetj0,
+            logl0,
+            logp0,
+            logdetj_flow0,
+            blobs0,
+            beta0,
+            proposal_scale0,
         ) = op
 
         if (
@@ -446,8 +458,16 @@ def mutate(
             Result dictionary with unchanged particles and zero diagnostics.
         """
         (
-            key0, u0, x0, logdetj0, logl0, logp0,
-            logdetj_flow0, blobs0, _beta0, proposal_scale0,
+            key0,
+            u0,
+            x0,
+            logdetj0,
+            logl0,
+            logp0,
+            logdetj_flow0,
+            blobs0,
+            _beta0,
+            proposal_scale0,
         ) = op
 
         z0f = jnp.asarray(0.0, dtype=u0.dtype)

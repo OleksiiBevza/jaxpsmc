@@ -8,9 +8,8 @@ from ..particles_jax import ParticlesState, compute_logw_and_logz_jax
 from ..tools_jax import effective_sample_size_jax, unique_sample_size_jax
 
 
-
 #################################################################
-# 4. _not_termination part 
+# 4. _not_termination part
 #################################################################
 Array = jax.Array
 
@@ -18,10 +17,10 @@ Array = jax.Array
 @jax.jit
 def not_termination_jax(
     state: ParticlesState,
-    beta_current: Array,         
-    n_total: Array,             
-    metric_code: Array,          
-    n_active: Array,             
+    beta_current: Array,
+    n_total: Array,
+    metric_code: Array,
+    n_active: Array,
     beta_tol: Array = jnp.asarray(1e-4),
 ) -> Array:
     """
@@ -86,9 +85,9 @@ def not_termination_jax(
     )
 
     # continue when beta is not close to 1 or metric is small
-    beta_not_close = (jnp.asarray(1.0, dtype=beta_current.dtype) - beta_current) >= jnp.asarray(
-        beta_tol, dtype=beta_current.dtype
-    )
+    beta_not_close = (
+        jnp.asarray(1.0, dtype=beta_current.dtype) - beta_current
+    ) >= jnp.asarray(beta_tol, dtype=beta_current.dtype)
     ess_too_small = ess_or_uss < jnp.asarray(n_total, dtype=ess_or_uss.dtype)
 
     return jnp.logical_or(beta_not_close, ess_too_small)
