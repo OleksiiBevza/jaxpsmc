@@ -13,10 +13,8 @@ from .reweight_jax import (
 )
 
 
-
-
 ###################################################################
-# PERSISTENT SAMPLING 
+# PERSISTENT SAMPLING
 ###################################################################
 @partial(
     jax.jit,
@@ -225,10 +223,14 @@ def reweight_step_persistent_jax(
     current_particles = {
         "u": jnp.where(mask_flat[:, None], u_flat, jnp.asarray(0.0, u_flat.dtype)),
         "x": jnp.where(mask_flat[:, None], x_flat, jnp.asarray(0.0, x_flat.dtype)),
-        "logdetj": jnp.where(mask_flat, logdetj_flat, jnp.asarray(0.0, logdetj_flat.dtype)),
+        "logdetj": jnp.where(
+            mask_flat, logdetj_flat, jnp.asarray(0.0, logdetj_flat.dtype)
+        ),
         "logl": jnp.where(mask_flat, logl_flat, jnp.asarray(0.0, logl_flat.dtype)),
         "logp": jnp.where(mask_flat, logp_flat, jnp.asarray(0.0, logp_flat.dtype)),
-        "blobs": jnp.where(mask_flat[:, None], blobs_flat, jnp.asarray(0.0, blobs_flat.dtype)),
+        "blobs": jnp.where(
+            mask_flat[:, None], blobs_flat, jnp.asarray(0.0, blobs_flat.dtype)
+        ),
         "logz": logz,
         "beta": beta,
         "weights": weights,

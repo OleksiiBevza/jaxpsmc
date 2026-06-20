@@ -12,13 +12,13 @@ from ..tools_jax import (
     trim_weights_jax,
     unique_sample_size_jax,
 )
-from .constants_jax import METRIC_ESS, METRIC_USS
-
+from .constants_jax import METRIC_ESS
 
 
 #################################################################
 # 1. REWEIGHT
 #################################################################
+
 
 def _metric_value(weights, metric_id, n_active):
     """
@@ -171,13 +171,12 @@ def _bisect_beta_scan(state, lo, hi, target, metric_id, n_active, steps, tol):
         # save midpoint when target has been reached
         beta2 = jnp.where((~done_c) & close, mid, beta_c)
 
-        
         return (lo2, hi2, done2, beta2), None
 
     # start from midpoint of the initial interval
     beta0 = (lo + hi) * jnp.asarray(0.5, dtype)
     carry0 = (lo, hi, jnp.asarray(False), beta0)
-   
+
     # run fixed number of scan steps
     (lo_f, hi_f, done_f, beta_f), _ = lax.scan(
         scan_step,
@@ -215,7 +214,7 @@ def _dynamic_neff(n_eff, weights_full, n_active, ratio):
     Array:
         updated target effective sample size as int32.
     """
-    # convert scalar inputs to weight dtype for stable arithmetic   
+    # convert scalar inputs to weight dtype for stable arithmetic
     n_eff_f = jnp.asarray(n_eff, dtype=weights_full.dtype)
     n_act_f = jnp.asarray(n_active, dtype=weights_full.dtype)
     # compute unique sample size from the weights
@@ -321,7 +320,7 @@ def reweight_step_jax(
     # evaluate chosen metric at previous beta and at beta = 1
     _, m_prev, _, _ = _weights_metric_logz(state, beta_prev, metric_id, n_active)
     _, m_one, _, _ = _weights_metric_logz(state, beta_one, metric_id, n_active)
-    
+
     # build target value and tolerance for the metric
     target = jnp.asarray(n_effective, dtype=m_prev.dtype)
     tol = jnp.asarray(0.01, dtype=m_prev.dtype) * target
@@ -343,7 +342,7 @@ def reweight_step_jax(
         tol=tol,
     )
 
-     # select beta for this reweight step
+    # select beta for this reweight step
     beta = lax.switch(
         cid,
         (
@@ -355,13 +354,17 @@ def reweight_step_jax(
     )
 
     # compute weights and logz for chosen beta
-    w_full, ess_est, logz_new, _ = _weights_metric_logz(state, beta, metric_id, n_active)
+    w_full, ess_est, logz_new, _ = _weights_metric_logz(
+        state, beta, metric_id, n_active
+    )
     logz = jnp.where(cid == jnp.int32(0), logz_prev, logz_new)
 
     # optionally update target effective size
     n_eff_new = lax.cond(
         dynamic,
-        lambda ne: _dynamic_neff(ne, w_full, n_active, jnp.asarray(dynamic_ratio, w_full.dtype)),
+        lambda ne: _dynamic_neff(
+            ne, w_full, n_active, jnp.asarray(dynamic_ratio, w_full.dtype)
+        ),
         lambda ne: jnp.asarray(ne, dtype=jnp.int32),
         n_effective,
     )
@@ -394,8 +397,10 @@ def reweight_step_jax(
     # keep highest trimmed weights
     order = jnp.argsort(w_trim)
     start = jnp.int32(n_tot - keep_max)
-    idx = lax.dynamic_slice_in_dim(order, start_index=start, slice_size=keep_max, axis=0)[::-1]
-    
+    idx = lax.dynamic_slice_in_dim(
+        order, start_index=start, slice_size=keep_max, axis=0
+    )[::-1]
+
     # extract kept weights and mask out zeros
     w_keep = w_trim[idx]
     keep_mask = w_keep > jnp.asarray(0.0, w_keep.dtype)
@@ -408,10 +413,14 @@ def reweight_step_jax(
     # gather kept particles and zero out dropped entries
     u_keep = jnp.where(keep_mask[:, None], u_flat[idx], jnp.asarray(0.0, u_flat.dtype))
     x_keep = jnp.where(keep_mask[:, None], x_flat[idx], jnp.asarray(0.0, x_flat.dtype))
-    logdetj_keep = jnp.where(keep_mask, logdetj_flat[idx], jnp.asarray(0.0, logdetj_flat.dtype))
+    logdetj_keep = jnp.where(
+        keep_mask, logdetj_flat[idx], jnp.asarray(0.0, logdetj_flat.dtype)
+    )
     logl_keep = jnp.where(keep_mask, logl_flat[idx], jnp.asarray(0.0, logl_flat.dtype))
     logp_keep = jnp.where(keep_mask, logp_flat[idx], jnp.asarray(0.0, logp_flat.dtype))
-    blobs_keep = jnp.where(keep_mask[:, None], blobs_flat[idx], jnp.asarray(0.0, blobs_flat.dtype))
+    blobs_keep = jnp.where(
+        keep_mask[:, None], blobs_flat[idx], jnp.asarray(0.0, blobs_flat.dtype)
+    )
 
     # build current particle dictionary used by the next stages
     current_particles = {

@@ -11,8 +11,6 @@ from ..particles_jax import ParticlesState, compute_logw_and_logz_jax
 from .constants_jax import _ECONVERGED, _EVALUEERR
 
 
-
-
 #################################################################
 # 5. POSTERIOR
 #################################################################
@@ -53,9 +51,11 @@ def _systematic_resample_impl(key, weights, size: int):
     w = jnp.asarray(weights)
     dtype = jnp.result_type(w, jnp.float64)
 
-    # validate and normalize weights 
+    # validate and normalize weights
     wsum = jnp.sum(w)
-    bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    bad = (
+        (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    )
 
     w_norm = w / jnp.where(bad, jnp.asarray(1.0, dtype), wsum)
 
@@ -69,7 +69,9 @@ def _systematic_resample_impl(key, weights, size: int):
     positions = (u + jnp.arange(size, dtype=dtype)) / jnp.asarray(size, dtype=dtype)
 
     # convert positions into CDF indices
-    idx = jnp.searchsorted(cdf, positions, side="left")  # :contentReference[oaicite:2]{index=2}
+    idx = jnp.searchsorted(
+        cdf, positions, side="left"
+    )  # :contentReference[oaicite:2]{index=2}
     idx = jnp.clip(idx, 0, w.shape[0] - 1).astype(jnp.int32)
 
     # mark invalid weights with a failure code and dummy indices
@@ -77,8 +79,6 @@ def _systematic_resample_impl(key, weights, size: int):
     status = jnp.where(bad, _EVALUEERR, _ECONVERGED)
 
     return idx, status, key_out
-
-
 
 
 class PosteriorOut(NamedTuple):
@@ -141,32 +141,37 @@ class PosteriorOut(NamedTuple):
     PosteriorOut:
         posterior samples, weights, diagnostics, and optional resamples.
     """
-    # flattened, fixed-size (T_max * N) arrays
-    samples: jax.Array              # (K, D)
-    logl: jax.Array                 # (K,)
-    logp: jax.Array                 # (K,)
-    blobs: jax.Array                # (K, B)
-    mask_valid: jax.Array           # (K,) bool (True for filled steps)
 
-    # importance weights 
-    weights: jax.Array              # (K,) normalized over kept entries and zeros where dropped/invalid
-    logw: jax.Array                 # (K,) log(weights); -inf where weights==0
-    mask_trim: jax.Array            # (K,) bool
-    threshold: jax.Array            # scalar
-    ess_ratio: jax.Array            # scalar
-    i_final: jax.Array              # scalar int32
+    # flattened, fixed-size (T_max * N) arrays
+    samples: jax.Array  # (K, D)
+    logl: jax.Array  # (K,)
+    logp: jax.Array  # (K,)
+    blobs: jax.Array  # (K, B)
+    mask_valid: jax.Array  # (K,) bool (True for filled steps)
+
+    # importance weights
+    weights: (
+        jax.Array
+    )  # (K,) normalized over kept entries and zeros where dropped/invalid
+    logw: jax.Array  # (K,) log(weights); -inf where weights==0
+    mask_trim: jax.Array  # (K,) bool
+    threshold: jax.Array  # scalar
+    ess_ratio: jax.Array  # scalar
+    i_final: jax.Array  # scalar int32
 
     # optional resampling
-    idx_resampled: jax.Array        # (K,) int32
-    resample_status: jax.Array      # scalar int64 (0 ok; nonzero indicates invalid weights in systematic)
-    samples_resampled: jax.Array    # (K, D)
-    logl_resampled: jax.Array       # (K,)
-    logp_resampled: jax.Array       # (K,)
-    blobs_resampled: jax.Array      # (K, B)
+    idx_resampled: jax.Array  # (K,) int32
+    resample_status: (
+        jax.Array
+    )  # scalar int64 (0 ok; nonzero indicates invalid weights in systematic)
+    samples_resampled: jax.Array  # (K, D)
+    logl_resampled: jax.Array  # (K,)
+    logp_resampled: jax.Array  # (K,)
+    blobs_resampled: jax.Array  # (K, B)
 
-    # evidence (from compute_logw_and_logz_jax) 
-    logz_new: jax.Array             # scalar
-    key_out: jax.Array              # PRNGKey
+    # evidence (from compute_logw_and_logz_jax)
+    logz_new: jax.Array  # scalar
+    key_out: jax.Array  # PRNGKey
 
 
 @partial(jax.jit, static_argnames=("bins",))
@@ -219,9 +224,11 @@ def trim_weights_scan_jax(
 
     # validate and normalize weights
     wsum = jnp.sum(w)
-    bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    bad = (
+        (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    )
 
-    # normalize 
+    # normalize
     w = w / jnp.where(bad, jnp.asarray(1.0, dtype), wsum)
 
     # compute ESS of the full normalized weights
@@ -278,13 +285,15 @@ def trim_weights_scan_jax(
         # ESS of normalized  weights that are kept:
         # w_trim = w_kept / kept_sum is sum(w_trim^2) = kept_sumsq / kept_sum^2
         kept_sum_safe = jnp.where(kept_sum > 0, kept_sum, jnp.asarray(1.0, dtype))
-        ess_trim = (kept_sum_safe * kept_sum_safe) / jnp.where(kept_sumsq > 0, kept_sumsq, jnp.asarray(jnp.inf, dtype))
+        ess_trim = (kept_sum_safe * kept_sum_safe) / jnp.where(
+            kept_sumsq > 0, kept_sumsq, jnp.asarray(jnp.inf, dtype)
+        )
 
         # return threshold and ESS ratio
         ratio = ess_trim / ess_total
         return threshold, ratio
 
-    # scan percentile grid from high to low: 
+    # scan percentile grid from high to low:
     # i from bins-1 down to 0 and pick first i with ratio >= ess
     idxs = jnp.arange(bins - 1, -1, -1, dtype=jnp.int32)
 
@@ -317,7 +326,9 @@ def trim_weights_scan_jax(
         return (found2, i_best2), r
 
     # run scan over all percentile indices
-    (found_final, i_final), _ = lax.scan(scan_step, (jnp.asarray(False), jnp.asarray(0, jnp.int32)), idxs)
+    (found_final, i_final), _ = lax.scan(
+        scan_step, (jnp.asarray(False), jnp.asarray(0, jnp.int32)), idxs
+    )
 
     # rebuild trimming result from chosen index
     # if not found, i_final = 0
@@ -330,7 +341,7 @@ def trim_weights_scan_jax(
     kept_sum_safe = jnp.where(kept_sum > 0, kept_sum, jnp.asarray(1.0, dtype))
     w_trim = jnp.where(mask, w_kept / kept_sum_safe, 0.0)
 
-    # works with invalid-input behavior 
+    # works with invalid-input behavior
     mask = jnp.where(bad, jnp.zeros_like(mask), mask)
     w_trim = jnp.where(bad, jnp.full_like(w_trim, jnp.nan), w_trim)
     threshold = jnp.where(bad, jnp.asarray(jnp.nan, dtype), threshold)
@@ -406,7 +417,9 @@ def posterior_jax(
     blobs = state.blobs.reshape((K, state.blobs.shape[-1]))
 
     # compute normalized log-weights (normalized), evidence, and valid-entry mask
-    logw0, logz_new, mask_valid = compute_logw_and_logz_jax(state, beta_final=beta_final, normalize=True)
+    logw0, logz_new, mask_valid = compute_logw_and_logz_jax(
+        state, beta_final=beta_final, normalize=True
+    )
     w0 = jnp.exp(logw0)
 
     # zero out entries that are not part of filled history
@@ -437,7 +450,7 @@ def posterior_jax(
             trim mask, normalized trimmed weights,
             threshold, ESS ratio, and trim index.
         """
-        # run trimming scan on the full weight vector      
+        # run trimming scan on the full weight vector
         mask_trim, w_trim, thr, ratio, i_final = trim_weights_scan_jax(
             w0, ess=ess_trim, bins=bins_trim
         )
@@ -479,7 +492,9 @@ def posterior_jax(
         return mask_trim, w_trim, thr, ratio, i_final
 
     # choose trimmed or untrimmed weights
-    mask_trim, weights, threshold, ess_ratio, i_final = lax.cond(trim_flag, _do_trim, _no_trim, operand=None)
+    mask_trim, weights, threshold, ess_ratio, i_final = lax.cond(
+        trim_flag, _do_trim, _no_trim, operand=None
+    )
     logw = jnp.log(weights)  # -inf where weights==0
 
     # convert resampling options to JAX arrays
@@ -503,7 +518,7 @@ def posterior_jax(
         tuple:
             resampled indices, status code, and output key.
         """
-        
+
         def _syst(k):
             """
             Applies systematic posterior resampling.
@@ -521,7 +536,7 @@ def posterior_jax(
             # run systematic resampler on posterior weights
             idx, status, k_out = _systematic_resample_impl(k, weights, size=K)
             return idx.astype(jnp.int32), status.astype(jnp.int64), k_out
-       
+
         def _mult(k):
             """
             Applies multinomial posterior resampling.
@@ -569,7 +584,9 @@ def posterior_jax(
         return idx, status, key_in
 
     # either resample posterior or keep it unchanged
-    idx_resampled, resample_status, key_out = lax.cond(do_resample_arr, _resample, _no_resample, key)
+    idx_resampled, resample_status, key_out = lax.cond(
+        do_resample_arr, _resample, _no_resample, key
+    )
 
     # clip indices (needed for array gathering)
     idx_safe = jnp.clip(idx_resampled, 0, K - 1)
@@ -601,5 +618,3 @@ def posterior_jax(
         logz_new=logz_new,
         key_out=key_out,
     )
-
-

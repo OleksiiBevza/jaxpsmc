@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -33,8 +33,6 @@ from .persistent_jax import reweight_step_persistent_jax
 from .resample_jax import resample_particles_jax
 from .reweight_jax import reweight_step_jax
 from .termination_jax import not_termination_jax
-
-
 
 
 Array = jax.Array
@@ -112,7 +110,9 @@ class IdentityBijectionJAX:
         """
         return cls()
 
-    def transform_and_log_det(self, u: Array, condition: Optional[Array] = None) -> Tuple[Array, Array]:
+    def transform_and_log_det(
+        self, u: Array, condition: Optional[Array] = None
+    ) -> Tuple[Array, Array]:
         """
         Applies the forward identity transformation.
 
@@ -137,7 +137,9 @@ class IdentityBijectionJAX:
         u = jnp.asarray(u)
         return u, jnp.zeros(u.shape[:-1], dtype=u.dtype)
 
-    def inverse_and_log_det(self, theta: Array, condition: Optional[Array] = None) -> Tuple[Array, Array]:
+    def inverse_and_log_det(
+        self, theta: Array, condition: Optional[Array] = None
+    ) -> Tuple[Array, Array]:
         """
         Applies the inverse identity transformation.
 
@@ -298,10 +300,6 @@ class IdentityFlowJAX:
         """
         # draw standard normal samples in the latent space
         return jax.random.normal(key, (n, self.dim))
-
-
-
-
 
 
 ##############################################################
@@ -468,6 +466,7 @@ class SamplerConfigJAX:
     SamplerConfigJAX:
         validated sampler configuration object.
     """
+
     # dimensions
     n_dim: int
     n_effective: int = 512
@@ -480,7 +479,7 @@ class SamplerConfigJAX:
     # MCMC kernel
     n_steps: int = 8
     n_max_steps: int = 80
-    proposal_scale: float = 0.0     # if 0 then set to 2.38/sqrt(D)
+    proposal_scale: float = 0.0  # if 0 then set to 2.38/sqrt(D)
 
     # mutation kernel selector:
     # if "pcn" = keep the existing kernel
@@ -524,11 +523,11 @@ class SamplerConfigJAX:
     # resampling options: ess or uss and syst or mult
     preconditioned: bool = True
     dynamic: bool = True
-    metric: str = "ess"             # "ess" or "uss" 
-    resample: str = "mult"          # "mult" or "syst" 
+    metric: str = "ess"  # "ess" or "uss"
+    resample: str = "mult"  # "mult" or "syst"
 
     # scaler options
-    transform: str = "probit"       # "probit" or "logit"
+    transform: str = "probit"  # "probit" or "logit"
     periodic: Optional[jnp.ndarray] = None
     reflective: Optional[jnp.ndarray] = None
 
@@ -537,7 +536,6 @@ class SamplerConfigJAX:
 
     # evidence option
     enable_flow_evidence: bool = False
-
 
     def __post_init__(self):
         """
@@ -567,7 +565,9 @@ class SamplerConfigJAX:
             raise ValueError("n_dim, n_active, n_effective must be positive.")
         # warmup samples must split evenly into active-particle batches
         if self.n_prior % self.n_active != 0:
-            raise ValueError("n_prior must be a multiple of n_active for warmup batching.")
+            raise ValueError(
+                "n_prior must be a multiple of n_active for warmup batching."
+            )
         # keep limit must also be positive.
         if self.keep_max <= 0:
             raise ValueError("keep_max must be positive.")
@@ -576,8 +576,7 @@ class SamplerConfigJAX:
             raise ValueError(
                 "sampling_mode must be 'persistent' or 'truncated_persistent'."
             )
-        
-        
+
         kernel_l = str(self.kernel).lower()
         if kernel_l not in ("pcn", "li_pcn", "dili_pcn"):
             raise ValueError("kernel must be one of: 'pcn', 'li_pcn', 'dili_pcn'.")
@@ -598,7 +597,6 @@ class SamplerConfigJAX:
         if self.dili_complement_var <= 0.0:
             raise ValueError("dili_complement_var must be positive.")
         if self.li_rank < 0:
-          
             raise ValueError("li_rank must be non-negative.")
         if self.li_lis_scale <= 0.0:
             raise ValueError("li_lis_scale must be positive.")
@@ -607,7 +605,7 @@ class SamplerConfigJAX:
         if self.li_var_floor <= 0.0:
             raise ValueError("li_var_floor must be positive.")
         if self.li_complement_var <= 0.0:
-            raise ValueError("li_complement_var must be positive.")        
+            raise ValueError("li_complement_var must be positive.")
 
 
 @jax.tree_util.register_pytree_node_class
@@ -638,6 +636,7 @@ class RunOutputJAX:
     RunOutputJAX:
         final sampler state and evidence values.
     """
+
     state: ParticlesState
     logz: Array
     logz_err: Array
@@ -779,7 +778,7 @@ class SamplerJAX:
                 "kernel='dili_pcn' requires either cfg.dili_autodiff_gnh=True "
                 "or a user-supplied local_gnh_fn(theta) -> (D, D)."
             )
-        
+
         # build jitted run function once during initialization
         self._run_fn = make_run_fn(
             prior=prior,
@@ -810,19 +809,15 @@ class SamplerJAX:
         --------
         RunOutputJAX:
             final particle history and evidence estimate.
-        """ 
+        """
         # forward call to stored jitted run function
         return self._run_fn(key, n_total=n_total)
 
 
-
-
-
-
-
 ##############################################################
-# 2. CORE JAX RUN LOOP 
+# 2. CORE JAX RUN LOOP
 ##############################################################
+
 
 def _replace_inf_rows(
     key: Array,
@@ -1045,7 +1040,7 @@ def make_run_fn(
     dili_cs_scale = float(cfg.dili_cs_scale)
     dili_gnh_floor = float(cfg.dili_gnh_floor)
     dili_cov_floor = float(cfg.dili_cov_floor)
-    dili_complement_var = float(cfg.dili_complement_var)    
+    dili_complement_var = float(cfg.dili_complement_var)
 
     sampling_mode = str(cfg.sampling_mode).lower()
     if sampling_mode == "persistent":
@@ -1056,7 +1051,6 @@ def make_run_fn(
         raise ValueError(
             "sampling_mode must be 'persistent' or 'truncated_persistent'."
         )
-
 
     def loglike_wrapped(x: Array) -> Tuple[Array, Array]:
         """
@@ -1083,7 +1077,10 @@ def make_run_fn(
         if isinstance(out, tuple) and len(out) == 2:
             ll, blob = out
         else:
-            ll, blob = out, jnp.zeros((blob_dim,), dtype=jnp.result_type(out, jnp.float64))
+            ll, blob = (
+                out,
+                jnp.zeros((blob_dim,), dtype=jnp.result_type(out, jnp.float64)),
+            )
 
         # build a blob vector with configured size
         if blob_dim == 0:
@@ -1091,7 +1088,7 @@ def make_run_fn(
         else:
             blob_vec = jnp.asarray(blob).reshape((blob_dim,))
         return jnp.asarray(ll), blob_vec
-    
+
     def loglike_approx_wrapped(x: Array) -> Array:
         """
         Converts the approximate likelihood output into a scalar array.
@@ -1121,14 +1118,19 @@ def make_run_fn(
 
         return jnp.asarray(ll)
 
-
     # convert string options into integer codes
     metric_code = _metric_code(cfg.metric)
     res_code = _resample_code(cfg.resample)
 
     # build periodic and reflective index arrays
-    periodic = jnp.asarray(cfg.periodic if cfg.periodic is not None else jnp.zeros((0,), dtype=jnp.int64))
-    reflective = jnp.asarray(cfg.reflective if cfg.reflective is not None else jnp.zeros((0,), dtype=jnp.int64))
+    periodic = jnp.asarray(
+        cfg.periodic if cfg.periodic is not None else jnp.zeros((0,), dtype=jnp.int64)
+    )
+    reflective = jnp.asarray(
+        cfg.reflective
+        if cfg.reflective is not None
+        else jnp.zeros((0,), dtype=jnp.int64)
+    )
 
     # build scaler configuration from prior bounds
     bounds = prior.bounds()
@@ -1145,11 +1147,14 @@ def make_run_fn(
 
     # precompute dynamic ratio used by reweight step
     w_ones = jnp.ones((cfg.n_effective,), dtype=jnp.float64)
-    dyn_ratio = (unique_sample_size_jax(w_ones, k=cfg.n_active) / jnp.asarray(cfg.n_active, jnp.float64)).astype(jnp.float64)
+    dyn_ratio = (
+        unique_sample_size_jax(w_ones, k=cfg.n_active)
+        / jnp.asarray(cfg.n_active, jnp.float64)
+    ).astype(jnp.float64)
 
     # choose initial proposal scale
     prop_scale = (
-        (2.38 / (cfg.n_dim ** 0.5))
+        (2.38 / (cfg.n_dim**0.5))
         if (cfg.proposal_scale is None or cfg.proposal_scale == 0.0)
         else float(cfg.proposal_scale)
     )
@@ -1285,7 +1290,7 @@ def make_run_fn(
             else:
                 local_gnh_effective_fn = local_gnh_fn
         else:
-            local_gnh_effective_fn = None        
+            local_gnh_effective_fn = None
 
         # (iii) create particle-history buffers
         state = init_particles_state_jax(
@@ -1334,8 +1339,10 @@ def make_run_fn(
             key_c, state_c, calls_c = carry
 
             # slice out one batch of prior samples
-            start = (i * n_active)
-            x = lax.dynamic_slice_in_dim(prior_samples, start_index=start, slice_size=n_active, axis=0)
+            start = i * n_active
+            x = lax.dynamic_slice_in_dim(
+                prior_samples, start_index=start, slice_size=n_active, axis=0
+            )
 
             # map x into u-space and recompute log-determinant
             u = forward_jax(x, scaler_cfg, scaler_masks)
@@ -1388,10 +1395,18 @@ def make_run_fn(
         # initiate the most recent warmup particles
         last_u = lax.dynamic_index_in_dim(state.u, state.t - 1, axis=0, keepdims=False)
         last_x = lax.dynamic_index_in_dim(state.x, state.t - 1, axis=0, keepdims=False)
-        last_logdetj = lax.dynamic_index_in_dim(state.logdetj, state.t - 1, axis=0, keepdims=False)
-        last_logl = lax.dynamic_index_in_dim(state.logl, state.t - 1, axis=0, keepdims=False)
-        last_logp = lax.dynamic_index_in_dim(state.logp, state.t - 1, axis=0, keepdims=False)
-        last_blobs = lax.dynamic_index_in_dim(state.blobs, state.t - 1, axis=0, keepdims=False)
+        last_logdetj = lax.dynamic_index_in_dim(
+            state.logdetj, state.t - 1, axis=0, keepdims=False
+        )
+        last_logl = lax.dynamic_index_in_dim(
+            state.logl, state.t - 1, axis=0, keepdims=False
+        )
+        last_logp = lax.dynamic_index_in_dim(
+            state.logp, state.t - 1, axis=0, keepdims=False
+        )
+        last_blobs = lax.dynamic_index_in_dim(
+            state.blobs, state.t - 1, axis=0, keepdims=False
+        )
 
         # build initial current-particle dictionary
         current_particles0: Dict[str, Array] = {
@@ -1405,9 +1420,9 @@ def make_run_fn(
             "beta": beta0,
             "calls": calls_w,
             "proposal_scale": jnp.asarray(prop_scale, dtype=dtype),
-            # IMPORTANT: 
+            # IMPORTANT:
             # PyTree structure is fixed across SMC while_loop
-            # _mutate() always returns scalar diagnostics, so 
+            # _mutate() always returns scalar diagnostics, so
             # include them in the initial carry as well
             "efficiency": jnp.asarray(1.0, dtype=dtype),
             "accept": jnp.asarray(1.0, dtype=dtype),
@@ -1437,9 +1452,17 @@ def make_run_fn(
             return theta, logdet
 
         # build an initial geometry object from warmup particles
-        theta0, _ = jax.vmap(_u2t_single, in_axes=0, out_axes=(0, 0))(current_particles0["u"])
-        w0 = jnp.full((n_active,), jnp.asarray(1.0, dtype) / jnp.asarray(n_active, dtype), dtype=dtype)
-        geom, key, _ = geometry_fit_jax(geom0, theta0, w0, use_weights=jnp.asarray(False), key=key)
+        theta0, _ = jax.vmap(_u2t_single, in_axes=0, out_axes=(0, 0))(
+            current_particles0["u"]
+        )
+        w0 = jnp.full(
+            (n_active,),
+            jnp.asarray(1.0, dtype) / jnp.asarray(n_active, dtype),
+            dtype=dtype,
+        )
+        geom, key, _ = geometry_fit_jax(
+            geom0, theta0, w0, use_weights=jnp.asarray(False), key=key
+        )
 
         n_total = jnp.asarray(n_total_dyn, dtype=dtype)
         metric_id = jnp.asarray(metric_code, dtype=jnp.int32)
@@ -1449,7 +1472,6 @@ def make_run_fn(
 
         use_pcn = jnp.asarray(use_pcn_bool)
         dynamic = jnp.asarray(cfg.dynamic)
-
 
         def cond_fn(carry):
             """
@@ -1472,7 +1494,7 @@ def make_run_fn(
             """
             # unpack values needed by the stop rule
             key_c, state_c, cur_c, geom_c, n_eff_c2, it = carry
-            
+
             # continue while sampler has not met stop rule
             not_done = not_termination_jax(
                 state_c,
@@ -1542,7 +1564,7 @@ def make_run_fn(
                 th, ld = flow_obj.bijection.transform_and_log_det(ui, None)
                 return th, ld
 
-            # update geometry using kept weighted particles            
+            # update geometry using kept weighted particles
             theta_keep, _ = jax.vmap(_u2t_keep, in_axes=0, out_axes=(0, 0))(cur_rw["u"])
             geom_new, key_c, _ = geometry_fit_jax(
                 geom_c,
@@ -1626,30 +1648,25 @@ def make_run_fn(
                 flow=flow_obj,
                 scaler_cfg=scaler_cfg,
                 scaler_masks=scaler_masks,
-
                 # Existing pCN keeps the Student-t geometry.
                 geom_mu=geom_new.t_mean,
                 geom_cov=geom_new.t_cov,
                 geom_nu=geom_new.t_nu,
-
                 # LI-pCN uses the empirical weighted Gaussian geometry.
                 li_geom_mu=geom_new.normal_mean,
                 li_geom_cov=geom_new.normal_cov,
-
                 kernel=kernel,
                 li_rank=li_rank,
                 li_lis_scale=li_lis_scale,
                 li_cs_scale=li_cs_scale,
                 li_var_floor=li_var_floor,
                 li_complement_var=li_complement_var,
-
                 dili_center=dili_center,
                 dili_basis=dili_basis,
                 dili_post_var=dili_post_var,
                 dili_cov_ref=dili_cov_ref,
                 dili_lis_scale=dili_lis_scale,
                 dili_cs_scale=dili_cs_scale,
-
                 n_max=n_max_steps,
                 n_steps=n_steps,
                 use_delayed_acceptance=jnp.asarray(cfg.delayed_acceptance),
@@ -1727,7 +1744,7 @@ def make_run_fn(
         """
         # use stopping or fall back to config value
         n_total_use = cfg.n_total if n_total is None else int(n_total)
-        
+
         # run jitted core run function
         return _run(
             key,
@@ -1744,7 +1761,3 @@ def make_run_fn(
         )
 
     return run
-
-
-
-

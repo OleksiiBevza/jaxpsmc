@@ -9,12 +9,18 @@ from ..tools_jax import systematic_resample_jax_size
 from .constants_jax import _ECONVERGED, _EVALUEERR
 
 
-
 #################################################################
 # 2. RESAMPLE
 #################################################################
 @partial(jax.jit, static_argnames=("n_active", "reset_weights"))
-def resample_particles_jax(current_particles, *, key, n_active: int, method_code: jnp.int32, reset_weights: bool = True):
+def resample_particles_jax(
+    current_particles,
+    *,
+    key,
+    n_active: int,
+    method_code: jnp.int32,
+    reset_weights: bool = True,
+):
     """
     Resamples particles from the current weighted particle set.
 
@@ -80,14 +86,23 @@ def resample_particles_jax(current_particles, *, key, n_active: int, method_code
 
         # validate weights before sampling
         wsum = jnp.sum(weights)
-        bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(weights)) | jnp.any(weights < 0)
+        bad = (
+            (wsum <= 0)
+            | (~jnp.isfinite(wsum))
+            | jnp.any(~jnp.isfinite(weights))
+            | jnp.any(weights < 0)
+        )
 
         # draw indices from categorical distribution when weights are valid
         logits = jnp.where(weights > 0, jnp.log(weights), -jnp.inf)
-        idx_samp = jax.random.categorical(subkey, logits, shape=(n_active,), axis=0).astype(jnp.int32)
+        idx_samp = jax.random.categorical(
+            subkey, logits, shape=(n_active,), axis=0
+        ).astype(jnp.int32)
 
         # fall back to a simple repeating pattern when weights are invalid
-        idx_fallback = (jnp.arange(n_active, dtype=jnp.int32) % jnp.int32(n_total)).astype(jnp.int32)
+        idx_fallback = (
+            jnp.arange(n_active, dtype=jnp.int32) % jnp.int32(n_total)
+        ).astype(jnp.int32)
 
         # select real indices or the fallback indices
         idx = jnp.where(bad, idx_fallback, idx_samp)
@@ -113,8 +128,10 @@ def resample_particles_jax(current_particles, *, key, n_active: int, method_code
             sampled indices, status code, and output key.
         """
         key_in, weights = args
-        #idx, status, key_out = systematic_resample_jax(weights, key=key_in, size=n_active)
-        idx, status, key_out = systematic_resample_jax_size(weights, key=key_in, size=n_active)
+        # idx, status, key_out = systematic_resample_jax(weights, key=key_in, size=n_active)
+        idx, status, key_out = systematic_resample_jax_size(
+            weights, key=key_in, size=n_active
+        )
         return idx.astype(jnp.int32), status.astype(jnp.int32), key_out
 
     # select resampling method from integer code
@@ -123,19 +140,25 @@ def resample_particles_jax(current_particles, *, key, n_active: int, method_code
         (_multinomial, _systematic),
         (key, w),
     )
-    
+
     # gather resampled particle arrays
-    u_out       = jnp.take(current_particles["u"],       idx, axis=0)
-    x_out       = jnp.take(current_particles["x"],       idx, axis=0)
+    u_out = jnp.take(current_particles["u"], idx, axis=0)
+    x_out = jnp.take(current_particles["x"], idx, axis=0)
     logdetj_out = jnp.take(current_particles["logdetj"], idx, axis=0)
-    logl_out    = jnp.take(current_particles["logl"],    idx, axis=0)
-    logp_out    = jnp.take(current_particles["logp"],    idx, axis=0)
-    blobs_out   = jnp.take(current_particles["blobs"],   idx, axis=0)
+    logl_out = jnp.take(current_particles["logl"], idx, axis=0)
+    logp_out = jnp.take(current_particles["logp"], idx, axis=0)
+    blobs_out = jnp.take(current_particles["blobs"], idx, axis=0)
 
     # reset weights to uniform or keep resampled weights
     w_res = jnp.take(w, idx, axis=0)
-    w_uni = jnp.full((n_active,), jnp.asarray(1.0, w.dtype) / jnp.asarray(n_active, w.dtype), dtype=w.dtype)
-    w_out = lax.cond(jnp.asarray(reset_weights), lambda _: w_uni, lambda _: w_res, operand=None)
+    w_uni = jnp.full(
+        (n_active,),
+        jnp.asarray(1.0, w.dtype) / jnp.asarray(n_active, w.dtype),
+        dtype=w.dtype,
+    )
+    w_out = lax.cond(
+        jnp.asarray(reset_weights), lambda _: w_uni, lambda _: w_res, operand=None
+    )
 
     # build new particle dictionary
     new_particles = {
