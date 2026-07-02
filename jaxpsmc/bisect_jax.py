@@ -1,13 +1,14 @@
-from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import lax
+
 jax.config.update("jax_enable_x64", True)
 
-_ECONVERGED  = jnp.int32(0)
-_ESIGNERR    = jnp.int32(-1)
-_ECONVERR    = jnp.int32(-2)
-_EVALUEERR   = jnp.int32(-3)
+_ECONVERGED = jnp.int32(0)
+_ESIGNERR = jnp.int32(-1)
+_ECONVERR = jnp.int32(-2)
+_EVALUEERR = jnp.int32(-3)
+
 
 def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
     """
@@ -73,27 +74,28 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
     it0 = jnp.int32(0)
 
     # check if endpoint is already root
-    a_is_root = (fa == jnp.asarray(0, dtype=dtype))
-    b_is_root = (fb == jnp.asarray(0, dtype=dtype))
+    a_is_root = fa == jnp.asarray(0, dtype=dtype)
+    b_is_root = fb == jnp.asarray(0, dtype=dtype)
     converged0 = a_is_root | b_is_root
 
     # stop early if function values are NaN
     any_nan0 = jnp.isnan(fa) | jnp.isnan(fb)
     # bisection needs opposite signs at endpoints
-    bracketed0 = (jnp.sign(fa) != jnp.sign(fb))
+    bracketed0 = jnp.sign(fa) != jnp.sign(fb)
 
     # start from midpoint unless one endpoint is root
     x0 = jnp.asarray(0.5, dtype=dtype) * (a + b)
     x0 = jnp.where(a_is_root, a, jnp.where(b_is_root, b, x0))
 
     # only do loop if everything above is valid
-    need_loop0 = (~bad_maxiter) & (~any_nan0) & (~converged0) & bracketed0 & (maxiter > 0)
+    need_loop0 = (
+        (~bad_maxiter) & (~any_nan0) & (~converged0) & bracketed0 & (maxiter > 0)
+    )
     nan_seen0 = any_nan0
 
     # keep active interval and endpoint values
     left, right = a, b
     fleft, fright = fa, fb
-
 
     def cond(state):
         """
@@ -116,10 +118,11 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
             True means another bisection step should run.
         """
         # unpack the current loop state
-        left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = state
+        left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = (
+            state
+        )
         # continue only if midpoint is not a root
         return need_loop & (~converged) & (~nan_seen) & (it < maxiter)
-
 
     def body(state):
         """
@@ -142,12 +145,14 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
             counters, and status flags.
         """
         # unpack the current loop state.
-        left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = state
+        left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = (
+            state
+        )
 
         # count iteration
         it = it + jnp.int32(1)
 
-        # compute midpoint and evaluate the function         
+        # compute midpoint and evaluate the function
         x = jnp.asarray(0.5, dtype=dtype) * (left + right)
         fx = f(x, *args)
         funcalls = funcalls + jnp.int32(1)
@@ -156,17 +161,17 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
         fx_nan = jnp.isnan(fx)
         nan_seen = nan_seen | fx_nan
 
-        # check if midpoint is exactly a root       
-        fx_is_root = (fx == jnp.asarray(0, dtype=dtype))
+        # check if midpoint is exactly a root
+        fx_is_root = fx == jnp.asarray(0, dtype=dtype)
 
         # decide which half of the interval still contains root
-        same_sign = (jnp.sign(fleft) == jnp.sign(fx))
+        same_sign = jnp.sign(fleft) == jnp.sign(fx)
         go_left = same_sign & (~fx_is_root) & (~fx_nan)
 
         # update interval
-        left2  = jnp.where(go_left, x, left)
+        left2 = jnp.where(go_left, x, left)
         fleft2 = jnp.where(go_left, fx, fleft)
-        right2  = jnp.where(go_left, right, x)
+        right2 = jnp.where(go_left, right, x)
         fright2 = jnp.where(go_left, fright, fx)
 
         # check stopping condition based on interval width
@@ -174,13 +179,37 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
         tol = xtol + rtol * jnp.abs(x)
         converged = fx_is_root | (width <= tol)
 
-        return (left2, right2, fleft2, fright2, x, it, funcalls, converged, nan_seen, need_loop)
+        return (
+            left2,
+            right2,
+            fleft2,
+            fright2,
+            x,
+            it,
+            funcalls,
+            converged,
+            nan_seen,
+            need_loop,
+        )
 
     # run bisection loop in JAX
-    left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = lax.while_loop(
-        cond,
-        body,
-        (left, right, fleft, fright, x0, it0, funcalls0, converged0, nan_seen0, need_loop0),
+    left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = (
+        lax.while_loop(
+            cond,
+            body,
+            (
+                left,
+                right,
+                fleft,
+                fright,
+                x0,
+                it0,
+                funcalls0,
+                converged0,
+                nan_seen0,
+                need_loop0,
+            ),
+        )
     )
 
     # build status code
@@ -193,7 +222,9 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
             lax.select(
                 converged0 | (need_loop0 & converged),
                 _ECONVERGED,
-                lax.select((~any_nan0) & (~converged0) & (~bracketed0), _ESIGNERR, _ECONVERR),
+                lax.select(
+                    (~any_nan0) & (~converged0) & (~bracketed0), _ESIGNERR, _ECONVERR
+                ),
             ),
         ),
     )
@@ -202,14 +233,16 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
     x = jnp.where(status == _ECONVERGED, x, jnp.nan)
     return x, status, it, funcalls
 
+
 # jit solver (single interval)
 _bisect_jit = jax.jit(_bisect_impl, static_argnames=("f",))
 
 
-
-
 def bisect_jax(
-    f, a, b, *,
+    f,
+    a,
+    b,
+    *,
     xtol=2e-12,
     rtol=4 * jnp.finfo(jnp.float64).eps,
     maxiter=100,
@@ -262,8 +295,6 @@ def bisect_jax(
     return _bisect_jit(f, a, b, xtol=xtol, rtol=rtol, maxiter=maxiter, args=args)
 
 
-
-
 def bisect_jax_batch(f, a, b, *, args=(), **kwargs):
     """
     Runs bisection over many intervals at once.
@@ -300,7 +331,6 @@ def bisect_jax_batch(f, a, b, *, args=(), **kwargs):
     a = jnp.asarray(a)
     b = jnp.asarray(b)
 
-    
     def _axis_for(arg):
         """
         Selects the vmap axis for one extra argument.
@@ -346,15 +376,3 @@ def bisect_jax_batch(f, a, b, *, args=(), **kwargs):
 
     in_axes = (0, 0) + args_axes
     return jax.vmap(solve_one, in_axes=in_axes)(a, b, *args)
-
-
-
-
-
-
-
-
-
-
-
-

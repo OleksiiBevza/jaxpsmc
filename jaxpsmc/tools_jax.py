@@ -2,9 +2,8 @@ from functools import partial
 import jax.numpy as jnp
 from jax import lax
 import jax
+
 jax.config.update("jax_enable_x64", True)
-
-
 
 
 @partial(jax.jit, static_argnames=("bins",))
@@ -74,7 +73,7 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
 
     # define percentile grid and sorted weights
     percentiles = jnp.linspace(jnp.asarray(0.0, dtype), jnp.asarray(99.0, dtype), bins)
-    sorted_w = jnp.sort(w)  # 
+    sorted_w = jnp.sort(w)  #
 
     # nr of weights
     n = w.shape[0]
@@ -111,7 +110,7 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
         frac = p / jnp.asarray(100.0, dtype)
 
         # linear interpolation percentile threshold from sorted weights
-        pos = frac * n_minus_1                    # in [0, n-1]
+        pos = frac * n_minus_1  # in [0, n-1]
         lo = jnp.floor(pos).astype(jnp.int32)
         hi = jnp.minimum(lo + 1, jnp.int32(n - 1))
         alpha = pos - lo.astype(dtype)
@@ -129,7 +128,7 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
         kept_sum_safe = jnp.where(kept_sum > 0, kept_sum, jnp.asarray(1.0, dtype))
         w_trim = jnp.where(mask, w_kept / kept_sum_safe, 0.0)
 
-        # compute ESS ratio after trimming     
+        # compute ESS ratio after trimming
         ess_trim = 1.0 / jnp.sum(w_trim * w_trim)
         ratio = ess_trim / ess_total
         return threshold, mask, w_trim, ratio
@@ -277,7 +276,9 @@ def unique_sample_size_jax(weights, k=-1):
 
     # choose k from input or from last axis length
     N = w.shape[-1]
-    k_eff = lax.cond(k < 0, lambda _: jnp.int32(N), lambda _: jnp.int32(k), operand=None)
+    k_eff = lax.cond(
+        k < 0, lambda _: jnp.int32(N), lambda _: jnp.int32(k), operand=None
+    )
 
     # compute unique sample size formula: sum_i [ 1 - (1 - w_i)^k ]
     # works for k=0 too then term becomes 0
@@ -330,14 +331,16 @@ def compute_ess_jax(logw):
 
     # normalize weights and compute ESS
     w = w_unnorm / jnp.where(bad, jnp.asarray(1.0, w_unnorm.dtype), wsum)
-    ess = 1.0 / jnp.sum(w * w, axis=-1)          # ESS
+    ess = 1.0 / jnp.sum(w * w, axis=-1)  # ESS
 
     # divide ESS by nr of weights
     N = lw.shape[-1]
-    ess_frac = ess / jnp.asarray(N, ess.dtype)   # ESS / N
+    ess_frac = ess / jnp.asarray(N, ess.dtype)  # ESS / N
 
     # NaN for invalid inputs
-    ess_frac = jnp.where(jnp.squeeze(bad, axis=-1), jnp.asarray(jnp.nan, ess_frac.dtype), ess_frac)
+    ess_frac = jnp.where(
+        jnp.squeeze(bad, axis=-1), jnp.asarray(jnp.nan, ess_frac.dtype), ess_frac
+    )
     return ess_frac
 
 
@@ -368,7 +371,7 @@ def increment_logz_jax(logw):
     lw_max = jnp.max(lw, axis=-1, keepdims=True)
     lw0 = lw - lw_max
 
-    # compute logsumexp as max plus log of the summed exponentials: 
+    # compute logsumexp as max plus log of the summed exponentials:
     # logsumexp = max + log(sum(exp(lw - max)))
     lse = lw_max + jnp.log(jnp.sum(jnp.exp(lw0), axis=-1, keepdims=True))
 
@@ -381,7 +384,8 @@ def increment_logz_jax(logw):
 
 
 _ECONVERGED = jnp.int64(0)
-_EVALUEERR  = jnp.int64(-3)
+_EVALUEERR = jnp.int64(-3)
+
 
 @partial(jax.jit, static_argnames=("size",))
 def _systematic_resample_impl(key, weights, size: int):
@@ -425,7 +429,9 @@ def _systematic_resample_impl(key, weights, size: int):
 
     # weights validation
     wsum = jnp.sum(w)
-    bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    bad = (
+        (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    )
     # weights normalization
     w_norm = w / jnp.where(bad, jnp.asarray(1.0, dtype), wsum)
 
@@ -493,6 +499,3 @@ def systematic_resample_jax_size(weights, *, key, size: int):
     """
     w = jnp.asarray(weights)
     return _systematic_resample_impl(key, w, size)
-
-
-

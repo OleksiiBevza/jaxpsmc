@@ -10,7 +10,6 @@ NORMAL = jnp.int32(0)
 UNIFORM = jnp.int32(1)
 
 
-
 def _normal_logpdf(params: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
     """
     Computes the log-density of a normal distribution.
@@ -152,6 +151,7 @@ def _support_bounds(kind: jnp.ndarray, params: jnp.ndarray) -> jnp.ndarray:
     jnp.ndarray:
         array with two values: [lower_bound, upper_bound].
     """
+
     def normal_bounds(_p):
         """
         Returns the support of a normal distribution.
@@ -194,7 +194,9 @@ def _support_bounds(kind: jnp.ndarray, params: jnp.ndarray) -> jnp.ndarray:
     return lax.switch(kind, [normal_bounds, uniform_bounds], params)
 
 
-def _logpdf_one_dim(kind: jnp.ndarray, params: jnp.ndarray, x_col: jnp.ndarray) -> jnp.ndarray:
+def _logpdf_one_dim(
+    kind: jnp.ndarray, params: jnp.ndarray, x_col: jnp.ndarray
+) -> jnp.ndarray:
     """
     Computes prior log-density values for one dimension.
 
@@ -224,7 +226,9 @@ def _logpdf_one_dim(kind: jnp.ndarray, params: jnp.ndarray, x_col: jnp.ndarray) 
     return lax.switch(kind, [_normal_logpdf, _uniform_logpdf], params, x_col)
 
 
-def _sample_one_dim(key: jax.Array, kind: jnp.ndarray, params: jnp.ndarray, n: int) -> jnp.ndarray:
+def _sample_one_dim(
+    key: jax.Array, kind: jnp.ndarray, params: jnp.ndarray, n: int
+) -> jnp.ndarray:
     """
     Draws samples for one prior dimension.
 
@@ -262,7 +266,6 @@ def _sample_one_dim(key: jax.Array, kind: jnp.ndarray, params: jnp.ndarray, n: i
     )
 
 
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Prior:
@@ -298,7 +301,8 @@ class Prior:
     Prior:
         factorized prior object with one distribution per dimension.
     """
-    kinds: jnp.ndarray   # (D,) int32
+
+    kinds: jnp.ndarray  # (D,) int32
     params: jnp.ndarray  # (D, 2)
 
     def tree_flatten(self):
@@ -443,8 +447,8 @@ class Prior:
         """
         per_dim = jax.vmap(
             _logpdf_one_dim,
-            in_axes=(0, 0, 1),   # kinds (D,), params (D,2), x (N,D) into column per dim
-            out_axes=1,          # (N, D)
+            in_axes=(0, 0, 1),  # kinds (D,), params (D,2), x (N,D) into column per dim
+            out_axes=1,  # (N, D)
         )(self.kinds, self.params, x)
         # sum the per-dimension terms across columns
         return jnp.sum(per_dim, axis=1)
@@ -518,9 +522,3 @@ class Prior:
             one sampled point from the prior, shape (D,).
         """
         return self.sample(key, n=1)[0]
-    
-
-
-
-
-    
