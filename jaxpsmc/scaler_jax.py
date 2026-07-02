@@ -1,23 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
 from typing import Mapping
 import jax
+from jax import Array
 import jax.numpy as jnp
 import jax.scipy as jsp
-from jax.experimental import checkify
-from .input_validation_jax import (
-    assert_array_ndim,
-    assert_array_2d,
-    assert_array_1d,
-    assert_arrays_equal_shape,
-    assert_equal_type,
-    assert_array_float,
-    within_interval_mask,
-    assert_array_within_interval,
-    jit_with_checks,
-)
-
+from .input_validation_jax import assert_array_within_interval
 
 
 _EMPTY_I32 = jnp.zeros((0,), dtype=jnp.int64)
@@ -269,7 +257,7 @@ def _inverse_both_jax(
     low: Array,
     high: Array,
     mask_both: Array,
-    transform_id: Array,   # 0 = logit, 1 = probit
+    transform_id: Array,  # 0 = logit, 1 = probit
 ) -> tuple[Array, Array]:
     """
     Applies the inverse transform for dimensions with two finite bounds.
@@ -307,11 +295,11 @@ def _inverse_both_jax(
     transform_id = jnp.asarray(transform_id, dtype=jnp.int64)
 
     # choose only bounded dimensions
-    u_sel = u[:, mask_both]        # (N, K)
-    low_sel = low[mask_both]       # (K,)
-    high_sel = high[mask_both]     # (K,)
-    span = high_sel - low_sel      # (K,)
-    log_span = jnp.log(span)       # (K,)  (invalid bounds will yield nan/-inf)
+    u_sel = u[:, mask_both]  # (N, K)
+    low_sel = low[mask_both]  # (K,)
+    high_sel = high[mask_both]  # (K,)
+    span = high_sel - low_sel  # (K,)
+    log_span = jnp.log(span)  # (K,)  (invalid bounds will yield nan/-inf)
 
     def _logit_branch(op):
         """
@@ -377,13 +365,12 @@ def _inverse_both_jax(
     return x, J
 
 
-
 def _forward_both_jax(
     x: Array,
     low: Array,
     high: Array,
     mask_both: Array,
-    transform_id: Array,   # 0 = logit, 1 = probit
+    transform_id: Array,  # 0 = logit, 1 = probit
     *,
     eps: float = 1e-13,
 ) -> Array:
@@ -423,10 +410,10 @@ def _forward_both_jax(
     transform_id = jnp.asarray(transform_id, dtype=jnp.int64)
 
     # select only bounded dimensions
-    x_sel = x[:, mask_both]          # (N, K)
-    low_sel = low[mask_both]         # (K,)
-    high_sel = high[mask_both]       # (K,)
-    span = high_sel - low_sel        # (K,)
+    x_sel = x[:, mask_both]  # (N, K)
+    low_sel = low[mask_both]  # (K,)
+    high_sel = high[mask_both]  # (K,)
+    span = high_sel - low_sel  # (K,)
 
     # convert bounded values to probabilities and clip them away from 0 and 1
     p = (x_sel - low_sel) / span
@@ -447,7 +434,7 @@ def _forward_both_jax(
         Array:
             logit-transformed values.
         """
-        # apply logit transform: logit(p) = log(p) - log(1-p) 
+        # apply logit transform: logit(p) = log(p) - log(1-p)
         return jnp.log(p_in) - jnp.log1p(-p_in)
 
     def _probit_branch(p_in: Array) -> Array:
@@ -464,7 +451,7 @@ def _forward_both_jax(
         Array:
             probit-transformed values.
         """
-        # apply inverse Gaussian CDF: probit(p) = sqrt(2) * erfinv(2p - 1)   
+        # apply inverse Gaussian CDF: probit(p) = sqrt(2) * erfinv(2p - 1)
         return jnp.sqrt(jnp.asarray(2.0, dtype=p_in.dtype)) * jsp.special.erfinv(
             2.0 * p_in - 1.0
         )
@@ -501,12 +488,12 @@ def _inverse_right_jax(u: Array, high: Array, mask_right: Array) -> tuple[Array,
     mask_right = jnp.asarray(mask_right, dtype=bool)
 
     # choose only right-bounded dimensions
-    u_sel = u[:, mask_right]        # (N, K)
-    high_sel = high[mask_right]     # (K,)
+    u_sel = u[:, mask_right]  # (N, K)
+    high_sel = high[mask_right]  # (K,)
 
     # apply x = high - exp(u) and keep u as log-Jacobian term
-    x = high_sel - jnp.exp(u_sel)   # (N, K) through  broadcasting  
-    J = u_sel                       # 
+    x = high_sel - jnp.exp(u_sel)  # (N, K) through  broadcasting
+    J = u_sel  #
     return x, J
 
 
@@ -536,12 +523,11 @@ def _forward_right_jax(x: Array, high: Array, mask_right: Array) -> Array:
     mask_right = jnp.asarray(mask_right, dtype=bool)
 
     # select only right-bounded dimensions
-    x_sel = x[:, mask_right]        # (N, K)
-    high_sel = high[mask_right]     # (K,)
+    x_sel = x[:, mask_right]  # (N, K)
+    high_sel = high[mask_right]  # (K,)
 
     # apply u = log(high - x)
     return jnp.log(high_sel - x_sel)
-
 
 
 def _inverse_left_jax(u: Array, low: Array, mask_left: Array) -> tuple[Array, Array]:
@@ -571,12 +557,12 @@ def _inverse_left_jax(u: Array, low: Array, mask_left: Array) -> tuple[Array, Ar
     mask_left = jnp.asarray(mask_left, dtype=bool)
 
     # select only left-bounded dimensions
-    u_sel = u[:, mask_left]      # (N, K)
-    low_sel = low[mask_left]     # (K,)
+    u_sel = u[:, mask_left]  # (N, K)
+    low_sel = low[mask_left]  # (K,)
 
     # apply x = exp(u) + low and keep u as the log-Jacobian term
     x = jnp.exp(u_sel) + low_sel
-    J = u_sel                    
+    J = u_sel
     return x, J
 
 
@@ -606,20 +592,20 @@ def _forward_left_jax(x: Array, low: Array, mask_left: Array) -> Array:
     mask_left = jnp.asarray(mask_left, dtype=bool)
 
     # select only left-bounded dimensions
-    x_sel = x[:, mask_left]     # (N, K)
-    low_sel = low[mask_left]    # (K,)
+    x_sel = x[:, mask_left]  # (N, K)
+    low_sel = low[mask_left]  # (K,)
 
     # apply u = log(x - low)
     return jnp.log(x_sel - low_sel)
 
 
 def _inverse_affine_jax(
-    u: Array,                 # (N, D)
-    mu: Array,                # (D,)
-    sigma: Array,             # (D,)  (use it if diagonal=True)
-    L: Array,                 # (D, D) (use it if diagonal=False)
-    log_det_L: Array,         # scalar (use it if diagonal=False)
-    diagonal: Array | bool,   # scalar bool
+    u: Array,  # (N, D)
+    mu: Array,  # (D,)
+    sigma: Array,  # (D,)  (use it if diagonal=True)
+    L: Array,  # (D, D) (use it if diagonal=False)
+    log_det_L: Array,  # scalar (use it if diagonal=False)
+    diagonal: Array | bool,  # scalar bool
 ) -> tuple[Array, Array]:
     """
     Applies the inverse affine scaling transform.
@@ -707,11 +693,11 @@ def _inverse_affine_jax(
 
 
 def _forward_affine_jax(
-    x: Array,          # (N, D)
-    mu: Array,         # (D,)
-    sigma: Array,      # (D,)    used if diagonal=True
-    L_inv: Array,      # (D, D)  used if diagonal=False
-    diagonal: Array,   # scalar bool
+    x: Array,  # (N, D)
+    mu: Array,  # (D,)
+    sigma: Array,  # (D,)    used if diagonal=True
+    L_inv: Array,  # (D, D)  used if diagonal=False
+    diagonal: Array,  # scalar bool
 ) -> Array:
     """
     Applies the forward affine scaling transform.
@@ -785,18 +771,17 @@ def _forward_affine_jax(
     return jax.lax.cond(diagonal, _diag_branch, _full_branch, operand=None)
 
 
-
 _LOG_SQRT_2PI = jnp.log(jnp.sqrt(2.0 * jnp.pi))
 
 
 def _inverse_jax(
-    u: jax.Array,             # (N, D)
-    low: jax.Array,           # (D,)
-    high: jax.Array,          # (D,)
-    mask_none: jax.Array,     # (D,) bool
-    mask_left: jax.Array,     # (D,) bool
-    mask_right: jax.Array,    # (D,) bool
-    mask_both: jax.Array,     # (D,) bool
+    u: jax.Array,  # (N, D)
+    low: jax.Array,  # (D,)
+    high: jax.Array,  # (D,)
+    mask_none: jax.Array,  # (D,) bool
+    mask_left: jax.Array,  # (D,) bool
+    mask_right: jax.Array,  # (D,) bool
+    mask_both: jax.Array,  # (D,) bool
     transform_id: jax.Array,  # scalar int: 0=logit, 1=probit
 ) -> tuple[jax.Array, jax.Array]:
     """
@@ -839,32 +824,32 @@ def _inverse_jax(
     high = jnp.asarray(high)
 
     # expand masks so they broadcast over rows
-    mask_none = jnp.asarray(mask_none, dtype=bool)[None, :]   # (1, D)
+    mask_none = jnp.asarray(mask_none, dtype=bool)[None, :]  # (1, D)
     mask_left = jnp.asarray(mask_left, dtype=bool)[None, :]
     mask_right = jnp.asarray(mask_right, dtype=bool)[None, :]
     mask_both = jnp.asarray(mask_both, dtype=bool)[None, :]
 
-    # initiate transform choice   
+    # initiate transform choice
     transform_id = jnp.asarray(transform_id, dtype=jnp.int64)
-    is_probit = (transform_id == 1)  # scalar bool 
+    is_probit = transform_id == 1  # scalar bool
 
     # build span and log-span only where both bounds are finite
-    span = jnp.where(mask_both[0], high - low, 1.0)           # (D,) 
-    log_span = jnp.log(span)                                  # (D,)
+    span = jnp.where(mask_both[0], high - low, 1.0)  # (D,)
+    log_span = jnp.log(span)  # (D,)
 
     # logit inverse branch for all dimensions
-    p_sig = jax.nn.sigmoid(u)                                 # (N, D)
-    x_logit = low + p_sig * span                              # (N, D)
-    J_logit = log_span + jnp.log(p_sig) + jnp.log1p(-p_sig)    # (N, D)
+    p_sig = jax.nn.sigmoid(u)  # (N, D)
+    x_logit = low + p_sig * span  # (N, D)
+    J_logit = log_span + jnp.log(p_sig) + jnp.log1p(-p_sig)  # (N, D)
 
     # probit inverse branch for all dimensions
-    p_phi = jsp.special.ndtr(u)                               # (N, D)
-    x_probit = low + p_phi * span                             # (N, D)
-    J_probit = log_span + (-0.5 * u * u) - _LOG_SQRT_2PI       # (N, D)
+    p_phi = jsp.special.ndtr(u)  # (N, D)
+    x_probit = low + p_phi * span  # (N, D)
+    J_probit = log_span + (-0.5 * u * u) - _LOG_SQRT_2PI  # (N, D)
 
     # select requested two-sided branch
-    x_both = jnp.where(is_probit, x_probit, x_logit)           # (N, D)
-    J_both = jnp.where(is_probit, J_probit, J_logit)           # (N, D)
+    x_both = jnp.where(is_probit, x_probit, x_logit)  # (N, D)
+    J_both = jnp.where(is_probit, J_probit, J_logit)  # (N, D)
 
     # one-sided branches (computed for all dims, only used where their mask=True)
     exp_u = jnp.exp(u)
@@ -894,14 +879,14 @@ def _inverse_jax(
 
 
 def _forward_jax(
-    x: Array,                  # (N, D)
-    low: Array,                # (D,)
-    high: Array,               # (D,)
-    mask_none: Array,          # (D,) bool
-    mask_left: Array,          # (D,) bool
-    mask_right: Array,         # (D,) bool
-    mask_both: Array,          # (D,) bool
-    transform_id: Array,       # scalar int: 0=logit, 1=probit
+    x: Array,  # (N, D)
+    low: Array,  # (D,)
+    high: Array,  # (D,)
+    mask_none: Array,  # (D,) bool
+    mask_left: Array,  # (D,) bool
+    mask_right: Array,  # (D,) bool
+    mask_both: Array,  # (D,) bool
+    transform_id: Array,  # scalar int: 0=logit, 1=probit
     *,
     eps: float = 1e-13,
 ) -> Array:
@@ -946,14 +931,14 @@ def _forward_jax(
     high = jnp.asarray(high)
 
     # expand masks so they broadcast over rows
-    mask_none  = jnp.asarray(mask_none,  dtype=bool)[None, :]
-    mask_left  = jnp.asarray(mask_left,  dtype=bool)[None, :]
+    mask_none = jnp.asarray(mask_none, dtype=bool)[None, :]
+    mask_left = jnp.asarray(mask_left, dtype=bool)[None, :]
     mask_right = jnp.asarray(mask_right, dtype=bool)[None, :]
-    mask_both  = jnp.asarray(mask_both,  dtype=bool)[None, :]
+    mask_both = jnp.asarray(mask_both, dtype=bool)[None, :]
 
     # read transform choice
     transform_id = jnp.asarray(transform_id, dtype=jnp.int64)
-    is_probit = (transform_id == 1)
+    is_probit = transform_id == 1
 
     # unbounded dimensions pass through unchanged
     u_none = x
@@ -965,9 +950,9 @@ def _forward_jax(
     u_right = jnp.log(high - x)
 
     # two-sided probabilities: p=(x-low)/(high-low) then logit/probit
-    span = jnp.where(mask_both[0], high - low, 1.0)       # (D,)
-    low_safe = jnp.where(mask_both[0], low, 0.0)          # (D,)
-    p = (x - low_safe) / span                              # (N, D)
+    span = jnp.where(mask_both[0], high - low, 1.0)  # (D,)
+    low_safe = jnp.where(mask_both[0], low, 0.0)  # (D,)
+    p = (x - low_safe) / span  # (N, D)
 
     # clip probabilities away from 0 and 1
     eps_t = jnp.asarray(eps, dtype=x.dtype)
@@ -975,19 +960,23 @@ def _forward_jax(
 
     # initialize two-sided logit and probit transforms
     u_logit = jnp.log(p) - jnp.log1p(-p)
-    u_probit = jnp.sqrt(jnp.asarray(2.0, dtype=x.dtype)) * jsp.special.erfinv(2.0 * p - 1.0)
+    u_probit = jnp.sqrt(jnp.asarray(2.0, dtype=x.dtype)) * jsp.special.erfinv(
+        2.0 * p - 1.0
+    )
     u_both = jnp.where(is_probit, u_probit, u_logit)
 
     # assemble full output array (N, D)
     u = jnp.zeros_like(x)
-    u = jnp.where(mask_none,  u_none,  u)
-    u = jnp.where(mask_left,  u_left,  u)
+    u = jnp.where(mask_none, u_none, u)
+    u = jnp.where(mask_left, u_left, u)
     u = jnp.where(mask_right, u_right, u)
-    u = jnp.where(mask_both,  u_both,  u)
+    u = jnp.where(mask_both, u_both, u)
     return u
 
 
-def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) -> tuple[Array, Array]:
+def inverse_jax(
+    u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]
+) -> tuple[Array, Array]:
     """
     Applies the full inverse scaler transformation.
 
@@ -1053,8 +1042,13 @@ def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) 
         # undo affine scaling, then undo bounds transform
         x1, ld1 = _inverse_affine_jax(u_in, mu, sigma, L, log_det_L, diagonal)
         x2, ld2 = _inverse_jax(
-            x1, low, high,
-            mask_none, mask_left, mask_right, mask_both,
+            x1,
+            low,
+            high,
+            mask_none,
+            mask_left,
+            mask_right,
+            mask_both,
             transform_id,
         )
         return x2, ld1 + ld2
@@ -1075,8 +1069,13 @@ def inverse_jax(u: Array, cfg: Mapping[str, Array], masks: Mapping[str, Array]) 
         """
         # skip affine scaling when it is disabled
         return _inverse_jax(
-            u_in, low, high,
-            mask_none, mask_left, mask_right, mask_both,
+            u_in,
+            low,
+            high,
+            mask_none,
+            mask_left,
+            mask_right,
+            mask_both,
             transform_id,
         )
 
@@ -1125,8 +1124,12 @@ def forward_jax(
     # apply the bounds transform first
     u0 = _forward_jax(
         x,
-        cfg["low"], cfg["high"],
-        masks["mask_none"], masks["mask_left"], masks["mask_right"], masks["mask_both"],
+        cfg["low"],
+        cfg["high"],
+        masks["mask_none"],
+        masks["mask_left"],
+        masks["mask_right"],
+        masks["mask_both"],
         cfg["transform_id"],
         eps=eps,
     )
@@ -1150,11 +1153,12 @@ def forward_jax(
             fully transformed u-space values.
         """
         # apply affine scaling when it is enabled
-        return _forward_affine_jax(u_in, cfg["mu"], cfg["sigma"], cfg["L_inv"], diagonal)
+        return _forward_affine_jax(
+            u_in, cfg["mu"], cfg["sigma"], cfg["L_inv"], diagonal
+        )
 
     # choose scaled or unscaled forward transformation
     return jax.lax.cond(scale, _scaled, lambda z: z, u0)
-
 
 
 def forward_jax_checked(
@@ -1198,7 +1202,7 @@ def fit_jax(
     masks: Mapping[str, Array],
     *,
     eps: float = 1e-13,
-    jitter: float = 0.0,   # set 1e-6 if problems with Cholevsky
+    jitter: float = 0.0,  # set 1e-6 if problems with Cholevsky
 ) -> dict[str, Array]:
     """
     Fits affine scaling parameters after the bounds transform.
@@ -1235,8 +1239,12 @@ def fit_jax(
     # (i) forward bounds transform before fitting affine scaling
     u = _forward_jax(
         x,
-        cfg["low"], cfg["high"],
-        masks["mask_none"], masks["mask_left"], masks["mask_right"], masks["mask_both"],
+        cfg["low"],
+        cfg["high"],
+        masks["mask_none"],
+        masks["mask_left"],
+        masks["mask_right"],
+        masks["mask_both"],
         cfg["transform_id"],
         eps=eps,
     )
@@ -1248,7 +1256,7 @@ def fit_jax(
     # build common constants for diagonal and full branches
     D = u.shape[1]
     dtype = u.dtype
-    I = jnp.eye(D, dtype=dtype)
+    eye = jnp.eye(D, dtype=dtype)
     zero = jnp.asarray(0.0, dtype=dtype)
 
     def _diag_branch(_):
@@ -1270,10 +1278,10 @@ def fit_jax(
             inverse Cholesky factor, and log determinant.
         """
         # use per-dimension standard deviation
-        sigma = jnp.std(u, axis=0)   # ddof=0 (matches np.std default)
-        cov = I
-        L = I
-        L_inv = I
+        sigma = jnp.std(u, axis=0)  # ddof=0 (matches np.std default)
+        cov = eye
+        L = eye
+        L_inv = eye
         log_det_L = zero
         return sigma, cov, L, L_inv, log_det_L
 
@@ -1299,18 +1307,20 @@ def fit_jax(
         # compute sample covariance of transformed data:
         # np.cov(u.T) equivalent: centered.T @ centered / (N-1)
         n = u.shape[0]
-        denom = jnp.asarray(jnp.maximum(n - 1, 1), dtype=dtype)  # avoid divide-by-zero if n==1
+        denom = jnp.asarray(
+            jnp.maximum(n - 1, 1), dtype=dtype
+        )  # avoid divide-by-zero if n==1
         centered = u - mu
         cov = (centered.T @ centered) / denom
 
         # numerical stabilization: optional jitter before Cholesky
-        cov = cov + jnp.asarray(jitter, dtype=dtype) * I
+        cov = cov + jnp.asarray(jitter, dtype=dtype) * eye
 
         # factorize covariance and build its inverse factor
         L = jnp.linalg.cholesky(cov)
 
         # L_inv = inv(L)
-        L_inv = jsp.linalg.solve_triangular(L, I, lower=True)
+        L_inv = jsp.linalg.solve_triangular(L, eye, lower=True)
 
         # log(det(L)) for triangular L
         log_det_L = jnp.sum(jnp.log(jnp.diag(L)))
@@ -1335,7 +1345,6 @@ def fit_jax(
         log_det_L=log_det_L,
     )
     return cfg_out
-
 
 
 def apply_reflective_boundary_conditions_x_jax(
@@ -1400,7 +1409,7 @@ def apply_reflective_boundary_conditions_x_jax(
         x_safe = jnp.where(m, x_in, 0.0)
 
         # build safe lower bounds and interval widths
-        low_safe = jnp.where(reflective_mask, low, 0.0)     # (D,)
+        low_safe = jnp.where(reflective_mask, low, 0.0)  # (D,)
         span = jnp.where(reflective_mask, high - low, 1.0)  # (D,)
 
         # keep bound numerically stable: guard against zero-width intervals
@@ -1488,8 +1497,8 @@ def apply_periodic_boundary_conditions_x_jax(
         x_safe = jnp.where(m, x_in, 0.0)
 
         # safe lower bounds, upper bounds, and interval widths
-        low_safe = jnp.where(periodic_mask, low, 0.0)     # (D,)
-        high_safe = jnp.where(periodic_mask, high, 1.0)   # (D,)
+        low_safe = jnp.where(periodic_mask, low, 0.0)  # (D,)
+        high_safe = jnp.where(periodic_mask, high, 1.0)  # (D,)
         span = jnp.where(periodic_mask, high - low, 1.0)  # (D,)
 
         # protect against zero-width intervals
@@ -1497,11 +1506,11 @@ def apply_periodic_boundary_conditions_x_jax(
         span = jnp.where(span > tiny, span, 1.0)
 
         # wrap to [low, high)
-        y = jnp.mod(x_safe - low_safe, span)              # in [0, span)
-        x_wrap = low_safe + y                             # in [low, high)
+        y = jnp.mod(x_safe - low_safe, span)  # in [0, span)
+        x_wrap = low_safe + y  # in [low, high)
 
         # map positive multiples to 'high' instead of 'low'
-        pos = (x_safe - low_safe) > 0                     # excludes x==low, includes x==high and above
+        pos = (x_safe - low_safe) > 0  # excludes x==low, includes x==high and above
         x_wrap = jnp.where((y == 0.0) & pos, high_safe, x_wrap)
 
         # restore non-periodic dimensions unchanged
@@ -1509,7 +1518,6 @@ def apply_periodic_boundary_conditions_x_jax(
 
     # apply wrapping only when needed
     return jax.lax.cond(has_periodic, _wrap, lambda z: z, x)
-
 
 
 def apply_boundary_conditions_x_jax(
@@ -1580,7 +1588,9 @@ def apply_boundary_conditions_x_jax(
             reflectively corrected values.
         """
         # apply reflective boundary rule
-        return apply_reflective_boundary_conditions_x_jax(x_in, low, high, reflective_mask)
+        return apply_reflective_boundary_conditions_x_jax(
+            x_in, low, high, reflective_mask
+        )
 
     # apply periodic first
     x1 = jax.lax.cond(has_periodic, _apply_periodic, lambda z: z, x)
@@ -1588,12 +1598,3 @@ def apply_boundary_conditions_x_jax(
     x2 = jax.lax.cond(has_reflective, _apply_reflective, lambda z: z, x1)
 
     return x2
-
-
-
-
-
-
-
-
-

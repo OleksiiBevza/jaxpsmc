@@ -10,8 +10,6 @@ from jax.experimental import checkify
 Array = jax.Array
 
 
-
-
 def assert_array_ndim(x: Array, ndim: int, *, name: str = "x") -> Array:
     """
     Checks whether an array has the expected number of dimensions.
@@ -39,8 +37,10 @@ def assert_array_ndim(x: Array, ndim: int, *, name: str = "x") -> Array:
     # x.ndim is static, so convert it to a scalar array for check
     x_ndim_arr = jnp.asarray(x.ndim, dtype=jnp.int32)
     # check whether dimension count matches
-    ok = (x_ndim_arr == ndim_arr)
-    checkify.check(ok, f"{name} should have {{}} dimensions, but got {x.ndim}", ndim_arr)
+    ok = x_ndim_arr == ndim_arr
+    checkify.check(
+        ok, f"{name} should have {{}} dimensions, but got {x.ndim}", ndim_arr
+    )
     return x
 
 
@@ -62,7 +62,7 @@ def assert_array_2d(x: Array, *, name: str = "x") -> Array:
     --------
     Array:
         same input array if the check passes.
-    """ 
+    """
     return assert_array_ndim(x, 2, name=name)
 
 
@@ -116,7 +116,10 @@ def assert_arrays_equal_shape(
     """
     # shape comparison is static, so convert result to JAX scalar
     ok = jnp.asarray(x.shape == y.shape)
-    checkify.check(ok, f"{x_name} and {y_name} should have equal shape, but got {x.shape} and {y.shape}")
+    checkify.check(
+        ok,
+        f"{x_name} and {y_name} should have equal shape, but got {x.shape} and {y.shape}",
+    )
     return x, y
 
 
@@ -148,7 +151,10 @@ def assert_equal_type(
     """
     # compare dtypes of both arrays
     ok = jnp.asarray(x.dtype == y.dtype)
-    checkify.check(ok, f"{x_name} and {y_name} should have equal dtype, but got {x.dtype} and {y.dtype}")
+    checkify.check(
+        ok,
+        f"{x_name} and {y_name} should have equal dtype, but got {x.dtype} and {y.dtype}",
+    )
     return x, y
 
 
@@ -215,15 +221,15 @@ def within_interval_mask(
     # left NaN bound as negative infinity
     left_ = jnp.where(jnp.isnan(left), -jnp.inf, left)
     # right NaN bound as positive infinity
-    right_ = jnp.where(jnp.isnan(right),  jnp.inf, right)
+    right_ = jnp.where(jnp.isnan(right), jnp.inf, right)
     # build masks for the four interval types.
-    closed = (left_ <= x) & (x <= right_)      # [left, right]
-    lo_only = (left_ <  x) & (x <= right_)     # (left, right]
-    ro_only = (left_ <= x) & (x <  right_)     # [left, right)
-    open_  = (left_ <  x) & (x <  right_)      # (left, right)
+    closed = (left_ <= x) & (x <= right_)  # [left, right]
+    lo_only = (left_ < x) & (x <= right_)  # (left, right]
+    ro_only = (left_ <= x) & (x < right_)  # [left, right)
+    open_ = (left_ < x) & (x < right_)  # (left, right)
 
     # python booleans to JAX booleans
-    lo = jnp.asarray(left_open)  
+    lo = jnp.asarray(left_open)
     ro = jnp.asarray(right_open)
 
     # choose correct mask based on open or closed endpoints
@@ -232,7 +238,6 @@ def within_interval_mask(
         jnp.where(ro, open_, lo_only),
         jnp.where(ro, ro_only, closed),
     )
-
 
 
 def assert_array_within_interval(
@@ -274,18 +279,24 @@ def assert_array_within_interval(
         same input array if the check passes.
     """
     # get boolean mask for all elements
-    mask = within_interval_mask(x, left, right, left_open=left_open, right_open=right_open)
+    mask = within_interval_mask(
+        x, left, right, left_open=left_open, right_open=right_open
+    )
     # check passes only if all elements are inside the interval
     ok = jnp.all(mask)
 
     # compute min and max for error message
     xmin = jnp.min(x)
     xmax = jnp.max(x)
-    
-    # runtime error if at least one value is outside the interval
-    checkify.check(ok, f"{name} has values outside the required interval. min={{}} max={{}}", xmin, xmax)
-    return x
 
+    # runtime error if at least one value is outside the interval
+    checkify.check(
+        ok,
+        f"{name} has values outside the required interval. min={{}} max={{}}",
+        xmin,
+        xmax,
+    )
+    return x
 
 
 def jit_with_checks(
@@ -341,9 +352,7 @@ def jit_with_checks(
             output of the original function.
         """
         err, out = jitted(*args, **kwargs)
-        err.throw()   
+        err.throw()
         return out
 
     return wrapped
-
-

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
 from typing import Any, Dict, Tuple
@@ -6,16 +7,19 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 from jax.scipy.special import digamma
-jax.config.update("jax_enable_x64", True)
-from .bisect_jax import *
 
+jax.config.update("jax_enable_x64", True)
+from .bisect_jax import bisect_jax
 
 
 #####################################################################
 # Nu UPDATE-HELPER
 #####################################################################
 
-def _nu_fixed_point_objective(nu: jnp.ndarray, delta: jnp.ndarray, dim: jnp.ndarray) -> jnp.ndarray:
+
+def _nu_fixed_point_objective(
+    nu: jnp.ndarray, delta: jnp.ndarray, dim: jnp.ndarray
+) -> jnp.ndarray:
     """
     Computes the fixed-point objective used to update Student-t nu.
 
@@ -137,7 +141,6 @@ def _opt_nu_bisect(
             jnp.bool_(True),
         )
 
-
     def _do_bisect(_: Any):
         """
         Runs bisection to solve the nu fixed-point equation.
@@ -156,18 +159,18 @@ def _opt_nu_bisect(
             updated nu, bisection status code, and False infinite-nu flag.
         """
         # solve fixed point equation with bisection
-        #root, status, _, _ = bisect_jax(
+        # root, status, _, _ = bisect_jax(
         #    _nu_fixed_point_objective,
         #    a,
         #    b,
         #    xtol=xtol,
         #    maxiter=bisect_maxiter,
         #    args=(delta, dim_f),
-        #)
+        # )
         # keep the previous nu when bisection fails
-        #nu_new = jnp.where(status == 0, root, nu_old)
-        #return (nu_new, status, jnp.bool_(False))
-        #return (nu_new, status.astype(jnp.int64), jnp.bool_(False))
+        # nu_new = jnp.where(status == 0, root, nu_old)
+        # return (nu_new, status, jnp.bool_(False))
+        # return (nu_new, status.astype(jnp.int64), jnp.bool_(False))
         root, status, _, _ = bisect_jax(
             _nu_fixed_point_objective,
             a,
@@ -188,12 +191,6 @@ def _opt_nu_bisect(
 
     # large-nu shortcut when objective is already nonnegative there
     return lax.cond(f_large >= 0, _set_inf, _do_bisect, operand=None)
-
-
-
-
-
-
 
 
 #####################################################################
@@ -228,7 +225,7 @@ def _init_mu_sigma(data: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
     # sample count and dimension
     n, dim = data.shape
     # coordinate wise median as initial location
-    mu = jnp.median(data, axis=0)  
+    mu = jnp.median(data, axis=0)
 
     # stable covariance like starting matrix
     centered = data - jnp.mean(data, axis=0, keepdims=True)
@@ -238,28 +235,23 @@ def _init_mu_sigma(data: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
     var = jnp.var(data, axis=0)  # ddof=0
     Sigma = cov_mle + jnp.diag(var) / n_f
 
-    #Sigma = 0.5 * (Sigma + Sigma.T)
+    # Sigma = 0.5 * (Sigma + Sigma.T)
     return mu, Sigma
-
-
-
-
-
-
 
 
 #####################################################################
 # EM (EXPECTATION MAXIMIZATION CORE)
 #####################################################################
 
+
 @jax.jit
 def _fit_mvstud_core(
-    data: jnp.ndarray,              # (n, dim)
-    tol: jnp.ndarray,               # scalar float
-    max_iter: jnp.ndarray,          # scalar int32
-    nu_init: jnp.ndarray,           # scalar float
-    xtol: jnp.ndarray,              # scalar float
-    bisect_maxiter: jnp.ndarray,    # scalar int32
+    data: jnp.ndarray,  # (n, dim)
+    tol: jnp.ndarray,  # scalar float
+    max_iter: jnp.ndarray,  # scalar int32
+    nu_init: jnp.ndarray,  # scalar float
+    xtol: jnp.ndarray,  # scalar float
+    bisect_maxiter: jnp.ndarray,  # scalar int32
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.int64, jnp.int64]:
     """
     Fits a multivariate Student-t distribution using EM updates.
@@ -378,9 +370,9 @@ def _fit_mvstud_core(
         mu, Sigma, nu, last_nu, i, stop, status = state
 
         # compute Mahalanobis distances under current parameters
-        diffs = data - mu[None, :]                    # (n, dim)
-        sol = jnp.linalg.solve(Sigma, diffs.T)        # (dim, n)
-        delta = jnp.sum(diffs.T * sol, axis=0)        # (n,)
+        diffs = data - mu[None, :]  # (n, dim)
+        sol = jnp.linalg.solve(Sigma, diffs.T)  # (dim, n)
+        delta = jnp.sum(diffs.T * sol, axis=0)  # (n,)
 
         # update nu with bisection helper
         nu_old = nu
@@ -389,11 +381,11 @@ def _fit_mvstud_core(
         )
 
         # failures in nu update (if exists)
-        bisect_error = (nu_bisect_status != 0)
+        bisect_error = nu_bisect_status != 0
 
         # compute Student-t weights for the updated nu
         dim_f = jnp.asarray(dim, dtype=dtype)
-        w = (nu_new + dim_f) / (nu_new + delta)       # (n,)
+        w = (nu_new + dim_f) / (nu_new + delta)  # (n,)
 
         def _keep_params(_: Any):
             """
@@ -444,17 +436,21 @@ def _fit_mvstud_core(
             return (mu_upd, Sigma_upd)
 
         # match original behavior: if nu becomes inf, return *current* mu/Sigma (don’t update them)
-        mu_new2, Sigma_new2 = lax.cond(nu_is_inf, _keep_params, _update_params, operand=None)
+        mu_new2, Sigma_new2 = lax.cond(
+            nu_is_inf, _keep_params, _update_params, operand=None
+        )
 
         # update stop flag and status code
         stop2 = jnp.logical_or(stop, jnp.logical_or(nu_is_inf, bisect_error))
         status2 = lax.cond(
             status != 0,
-            lambda _: status,                                   # already has an error code
+            lambda _: status,  # already has an error code
             lambda _: lax.cond(
                 bisect_error,
-                lambda __: nu_bisect_status,                    # negative error code
-                lambda __: lax.cond(nu_is_inf, lambda ___: jnp.int64(2), lambda ___: jnp.int64(0), None),
+                lambda __: nu_bisect_status,  # negative error code
+                lambda __: lax.cond(
+                    nu_is_inf, lambda ___: jnp.int64(2), lambda ___: jnp.int64(0), None
+                ),
                 None,
             ),
             operand=None,
@@ -472,17 +468,13 @@ def _fit_mvstud_core(
     status = lax.cond(
         status != 0,
         lambda _: status,
-        lambda _: lax.cond(converged, lambda __: jnp.int64(0), lambda __: jnp.int64(1), None),
+        lambda _: lax.cond(
+            converged, lambda __: jnp.int64(0), lambda __: jnp.int64(1), None
+        ),
         operand=None,
     )
 
     return mu, Sigma, nu, iters, status
-
-
-
-
-
-
 
 
 #####################################################################
@@ -550,4 +542,3 @@ def fit_mvstud_jax(
     # info dictionary returned to caller
     info = {"iters": iters, "status": status}
     return mu, Sigma, nu, info
-
