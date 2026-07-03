@@ -1,5 +1,7 @@
+# ruff: noqa: E402
 import chex
 import jax
+
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
@@ -9,10 +11,6 @@ from jaxpsmc.mcmc.dili_pcn_jax import (
     _dili_li_prior_proposal,
     _standard_normal_log_reference,
     dili_pcn_jax,
-)
-from jaxpsmc.mcmc.flow_jax import (
-    _flow_u_to_theta_jax,
-    _flow_theta_to_u_jax,
 )
 from jaxpsmc.sampler.mutate_jax import mutate
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
@@ -266,7 +264,6 @@ class DiliPcnTest(chex.TestCase):
         assert out.dtype == theta.dtype
         assert bool(jnp.all(jnp.isfinite(out)))
 
-
     def test_prop_zero(self):
         theta = jnp.asarray(
             [
@@ -302,7 +299,6 @@ class DiliPcnTest(chex.TestCase):
         assert bool(jnp.all(jnp.isfinite(out)))
         np.testing.assert_allclose(out, theta, rtol=1e-2, atol=1e-2)
 
-
     def test_prop_lis(self):
         theta = jnp.asarray(
             [
@@ -337,10 +333,6 @@ class DiliPcnTest(chex.TestCase):
         assert bool(jnp.all(jnp.isfinite(out)))
         np.testing.assert_allclose(out[:, 2], theta[:, 2], rtol=1e-2, atol=1e-2)
         assert not np.allclose(np.asarray(out[:, :2]), np.asarray(theta[:, :2]))
-
-
-
-
 
     @chex.all_variants(with_pmap=False)
     def test_noop(self):
@@ -379,7 +371,9 @@ class DiliPcnTest(chex.TestCase):
         )(self.key)
 
         np.testing.assert_allclose(out["proposal_scale"], 0.99, rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(out["efficiency"], out["proposal_scale"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            out["efficiency"], out["proposal_scale"], rtol=1e-6, atol=1e-6
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_shapes(self):
@@ -425,7 +419,9 @@ class DiliPcnTest(chex.TestCase):
         out1 = self.variant(f)(self.key)
         out2 = self.variant(f)(self.key)
 
-        np.testing.assert_array_equal(jax.random.key_data(out1["key"]), jax.random.key_data(out2["key"]))
+        np.testing.assert_array_equal(
+            jax.random.key_data(out1["key"]), jax.random.key_data(out2["key"])
+        )
         np.testing.assert_allclose(out1["u"], out2["u"])
         np.testing.assert_allclose(out1["x"], out2["x"])
         np.testing.assert_allclose(out1["logdetj"], out2["logdetj"])
@@ -464,7 +460,9 @@ class DiliPcnTest(chex.TestCase):
 
         self.check_kernel(out)
         assert out["blobs"].shape == (5, 0)
-        np.testing.assert_allclose(out["blobs"], jnp.zeros((5, 0), dtype=data["u"].dtype))
+        np.testing.assert_allclose(
+            out["blobs"], jnp.zeros((5, 0), dtype=data["u"].dtype)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_da(self):
@@ -562,7 +560,9 @@ class DiliPcnTest(chex.TestCase):
         key_out, out, info = self.variant(f)(self.key, cur)
 
         self.check_mutate(out)
-        np.testing.assert_array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        np.testing.assert_array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
         np.testing.assert_allclose(out["u"], cur["u"])
         np.testing.assert_allclose(out["x"], cur["x"])
         np.testing.assert_allclose(out["logdetj"], cur["logdetj"])
@@ -573,7 +573,9 @@ class DiliPcnTest(chex.TestCase):
         np.testing.assert_array_equal(out["calls"], cur["calls"])
         np.testing.assert_array_equal(out["steps"], jnp.asarray(0, dtype=jnp.int32))
         np.testing.assert_allclose(out["accept"], 0.0)
-        np.testing.assert_array_equal(info["calls_increment"], jnp.asarray(0, dtype=jnp.int32))
+        np.testing.assert_array_equal(
+            info["calls_increment"], jnp.asarray(0, dtype=jnp.int32)
+        )
         np.testing.assert_allclose(out["proposal_scale"], cur["proposal_scale"])
 
     @chex.all_variants(with_pmap=False)
@@ -614,7 +616,9 @@ class DiliPcnTest(chex.TestCase):
         key_out, out, info = self.variant(f)(self.key, cur)
 
         self.check_mutate(out)
-        assert not np.array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        assert not np.array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
         assert out["u"].shape == cur["u"].shape
         assert out["x"].shape == cur["x"].shape
         assert out["blobs"].shape == cur["blobs"].shape
@@ -623,8 +627,12 @@ class DiliPcnTest(chex.TestCase):
         assert bool(jnp.isfinite(out["proposal_scale"]))
         assert 0 <= int(out["steps"]) <= 2
         assert int(out["calls"]) >= int(cur["calls"])
-        np.testing.assert_array_equal(out["calls"], cur["calls"] + info["calls_increment"])
-        np.testing.assert_allclose(out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_array_equal(
+            out["calls"], cur["calls"] + info["calls_increment"]
+        )
+        np.testing.assert_allclose(
+            out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6
+        )
         assert 0.0 <= float(out["accept"]) <= 1.0
 
     def test_missing_geom(self):

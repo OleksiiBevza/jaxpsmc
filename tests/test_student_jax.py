@@ -129,7 +129,9 @@ class StudentTest(chex.TestCase):
         assert float(nu) > 0.0
 
         if int(status) == 0 and not bool(nu_is_inf):
-            obj = _nu_fixed_point_objective(nu, delta, jnp.asarray(2.0, dtype=delta.dtype))
+            obj = _nu_fixed_point_objective(
+                nu, delta, jnp.asarray(2.0, dtype=delta.dtype)
+            )
             np.testing.assert_allclose(obj, 0.0, rtol=1e-6, atol=1e-6)
 
     def test_nu_fallback(self):
@@ -302,7 +304,7 @@ class StudentTest(chex.TestCase):
         assert info["iters"].dtype == jnp.int64
         assert info["status"].dtype == jnp.int64
 
-    def test_dtype64(self):
+    def test_dtype64_full_output(self):
         data = self._data(dtype=jnp.float64)
         mu, sigma, nu, info = fit_mvstud_jax(
             data,

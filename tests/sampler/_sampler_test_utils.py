@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import chex
 import jax
 
@@ -164,4 +165,3 @@ class SamplerHelperBase(chex.TestCase):
             "trim_mask_full",
         }
         assert set(out.keys()) == expected
-

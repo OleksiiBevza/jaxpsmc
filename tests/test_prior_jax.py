@@ -27,9 +27,9 @@ class PriorTest(chex.TestCase):
         kinds = jnp.array([0, 1, 0], dtype=jnp.int32)
         params = jnp.array(
             [
-                [0.0, 1.0],    # normal(loc=0, scale=1)
-                [-2.0, 2.0],   # uniform(low=-2, high=2)
-                [1.0, 0.5],    # normal(loc=1, scale=0.5)
+                [0.0, 1.0],  # normal(loc=0, scale=1)
+                [-2.0, 2.0],  # uniform(low=-2, high=2)
+                [1.0, 0.5],  # normal(loc=1, scale=0.5)
             ],
             dtype=jnp.float32,
         )
@@ -66,7 +66,9 @@ class PriorTest(chex.TestCase):
         assert prior.kinds.dtype == jnp.int32
         assert prior.params.dtype == jnp.float32
 
-        np.testing.assert_array_equal(prior.kinds, jnp.array([0, 1, 0], dtype=jnp.int32))
+        np.testing.assert_array_equal(
+            prior.kinds, jnp.array([0, 1, 0], dtype=jnp.int32)
+        )
         np.testing.assert_allclose(
             prior.params,
             jnp.array([[0.0, 1.0], [-2.0, 2.0], [1.0, 0.5]], dtype=jnp.float32),

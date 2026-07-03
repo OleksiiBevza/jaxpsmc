@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import chex
 import jax
 
@@ -30,9 +31,15 @@ class ResampleTest(SamplerHelperBase):
 
         assert int(status) == int(_ECONVERGED)
         np.testing.assert_allclose(out["u"], jnp.ones((4, 1), dtype=cur["u"].dtype))
-        np.testing.assert_allclose(out["x"], 11.0 * jnp.ones((4, 1), dtype=cur["x"].dtype))
-        np.testing.assert_allclose(out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype))
-        assert not np.array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        np.testing.assert_allclose(
+            out["x"], 11.0 * jnp.ones((4, 1), dtype=cur["x"].dtype)
+        )
+        np.testing.assert_allclose(
+            out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype)
+        )
+        assert not np.array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_resample_syst(self):
@@ -51,7 +58,9 @@ class ResampleTest(SamplerHelperBase):
         assert int(status) == int(_ECONVERGED)
         np.testing.assert_allclose(out["u"], jnp.ones((4, 1), dtype=cur["u"].dtype))
         np.testing.assert_allclose(out["blobs"], jnp.ones((4, 1), dtype=cur["u"].dtype))
-        np.testing.assert_allclose(out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype))
+        np.testing.assert_allclose(
+            out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_resample_keep(self):
@@ -87,9 +96,13 @@ class ResampleTest(SamplerHelperBase):
         )(cur, self.key)
 
         assert int(status) == int(_EVALUEERR)
-        expected = jnp.asarray([[0.0], [1.0], [2.0], [0.0], [1.0]], dtype=cur["u"].dtype)
+        expected = jnp.asarray(
+            [[0.0], [1.0], [2.0], [0.0], [1.0]], dtype=cur["u"].dtype
+        )
         np.testing.assert_allclose(out["u"], expected)
-        np.testing.assert_allclose(out["weights"], 0.2 * jnp.ones((5,), dtype=cur["u"].dtype))
+        np.testing.assert_allclose(
+            out["weights"], 0.2 * jnp.ones((5,), dtype=cur["u"].dtype)
+        )
 
 
 if __name__ == "__main__":

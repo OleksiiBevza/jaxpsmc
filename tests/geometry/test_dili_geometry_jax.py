@@ -1,5 +1,7 @@
+# ruff: noqa: E402
 import chex
 import jax
+
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 import numpy as np
@@ -186,11 +188,15 @@ class DiliGeometryTest(chex.TestCase):
         )(theta, weights)
 
         gram = out.basis.T @ out.basis
-        np.testing.assert_allclose(gram, jnp.eye(2, dtype=jnp.float64), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            gram, jnp.eye(2, dtype=jnp.float64), rtol=1e-6, atol=1e-6
+        )
 
         assert bool(jnp.all(out.post_var > 0.0))
         assert bool(jnp.all(out.gnh_eigvals > 0.0))
-        np.testing.assert_allclose(out.gnh_eigvals, jnp.asarray([5.0, 2.0]), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            out.gnh_eigvals, jnp.asarray([5.0, 2.0]), rtol=1e-6, atol=1e-6
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_cov_ref(self):

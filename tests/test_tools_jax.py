@@ -48,7 +48,9 @@ class ToolsTest(chex.TestCase):
         weights_scaled = 10.0 * weights
 
         ess = self.variant(lambda w: effective_sample_size_jax(w))(weights)
-        ess_scaled = self.variant(lambda w: effective_sample_size_jax(w))(weights_scaled)
+        ess_scaled = self.variant(lambda w: effective_sample_size_jax(w))(
+            weights_scaled
+        )
 
         expected = self._manual_ess(np.asarray(weights))
         np.testing.assert_allclose(ess, expected, rtol=1e-6, atol=1e-6)

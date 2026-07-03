@@ -4,7 +4,11 @@ import jax.numpy as jnp
 import numpy as np
 from absl.testing import absltest
 
-from jaxpsmc.particles_jax import ParticlesState, ParticlesStep, init_particles_state_jax
+from jaxpsmc.particles_jax import (
+    ParticlesState,
+    ParticlesStep,
+    init_particles_state_jax,
+)
 from jaxpsmc.prior_jax import NORMAL, Prior
 from jaxpsmc.sampler.sampler_jax import (
     IdentityBijectionJAX,
@@ -29,7 +33,7 @@ class SamplerTest(chex.TestCase):
         kinds = jnp.array([NORMAL, NORMAL], dtype=jnp.int32)
         params = jnp.array([[0.0, 1.0], [0.5, 1.5]], dtype=dtype)
         return Prior.create(kinds, params)
-   
+
     def _cfg(self, **kwargs):
         base = dict(
             n_dim=2,
@@ -162,7 +166,7 @@ class SamplerTest(chex.TestCase):
         assert cfg.dynamic is True
         assert cfg.metric == "ess"
         assert cfg.resample == "mult"
-        assert cfg.sampling_mode == "truncated_persistent" 
+        assert cfg.sampling_mode == "truncated_persistent"
 
     def test_config_kernel_api(self):
         cfg_pcn = self._cfg(kernel="pcn")
@@ -203,7 +207,6 @@ class SamplerTest(chex.TestCase):
         assert cfg_li_active.preconditioned is True
         assert cfg_dili_active.preconditioned is True
 
-
     def test_config_sampling_mode_persistent(self):
         cfg = self._cfg(sampling_mode="persistent")
 
@@ -212,7 +215,7 @@ class SamplerTest(chex.TestCase):
     def test_config_sampling_mode_truncated_persistent(self):
         cfg = self._cfg(sampling_mode="truncated_persistent")
 
-        assert cfg.sampling_mode == "truncated_persistent"      
+        assert cfg.sampling_mode == "truncated_persistent"
 
     def test_config_bad(self):
         with self.assertRaises(ValueError):
@@ -226,7 +229,7 @@ class SamplerTest(chex.TestCase):
         with self.assertRaises(ValueError):
             self._cfg(keep_max=0)
         with self.assertRaises(ValueError):
-            self._cfg(sampling_mode="bad")        
+            self._cfg(sampling_mode="bad")
 
     def test_bijection(self):
         bij = IdentityBijectionJAX()
@@ -333,9 +336,7 @@ class SamplerTest(chex.TestCase):
             np.asarray(jax.random.key_data(self.key)),
         )
 
-        finite_x = np.asarray(
-            jnp.take(x, jnp.asarray([0, 3], dtype=jnp.int32), axis=0)
-        )
+        finite_x = np.asarray(jnp.take(x, jnp.asarray([0, 3], dtype=jnp.int32), axis=0))
         for row in np.asarray(x2):
             assert np.any(np.all(np.isclose(row[None, :], finite_x), axis=1))
 
@@ -438,7 +439,9 @@ class SamplerTest(chex.TestCase):
 
         assert int(out.state.t) == 1
         assert out.state.blobs.shape == (1, 4, 1)
-        np.testing.assert_allclose(out.state.blobs[0, :, 0], jnp.sum(out.state.x[0], axis=1))
+        np.testing.assert_allclose(
+            out.state.blobs[0, :, 0], jnp.sum(out.state.x[0], axis=1)
+        )
         np.testing.assert_allclose(out.state.calls[0], 4.0)
 
     @chex.all_variants(with_pmap=False)
@@ -568,10 +571,6 @@ class SamplerTest(chex.TestCase):
         assert int(out.state.t) >= 2
         assert bool(jnp.isfinite(out.logz))
 
-
-
-
-
     @chex.all_variants(with_pmap=False)
     def test_run_outer_noop_pcn_kernel(self):
         prior = self._prior(dtype=jnp.float64)
@@ -631,7 +630,6 @@ class SamplerTest(chex.TestCase):
         out = self.variant(lambda key: run(key))(self.key)
 
         self._assert_active_mutation_step(out)
-
 
     def test_sampler_init(self):
         prior = self._prior(dtype=jnp.float64)
@@ -777,7 +775,6 @@ class SamplerTest(chex.TestCase):
         np.testing.assert_allclose(out1.state.logp, out2.state.logp)
         np.testing.assert_allclose(out1.state.blobs, out2.state.blobs)
         np.testing.assert_allclose(out1.logz, out2.logz)
-
 
     @chex.all_variants(with_pmap=False)
     def test_dtype(self):

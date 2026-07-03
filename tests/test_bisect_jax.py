@@ -9,7 +9,8 @@ from jaxpsmc.bisect_jax import bisect_jax, bisect_jax_batch
 class BisectTest(chex.TestCase):
     @chex.all_variants(with_pmap=False)
     def test_root(self):
-        f = lambda x: x * x - 2.0
+        def f(x):
+            return x * x - 2.0
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
@@ -28,11 +29,12 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_left(self):
-        f = lambda x: x - 1.0
+        def f(x):
+            return x - 1.0
 
-        root, status, it, calls = self.variant(
-            lambda a, b: bisect_jax(f, a, b)
-        )(jnp.array(1.0), jnp.array(4.0))
+        root, status, it, calls = self.variant(lambda a, b: bisect_jax(f, a, b))(
+            jnp.array(1.0), jnp.array(4.0)
+        )
 
         np.testing.assert_allclose(root, 1.0)
         assert int(status) == 0
@@ -41,11 +43,12 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_right(self):
-        f = lambda x: x - 4.0
+        def f(x):
+            return x - 4.0
 
-        root, status, it, calls = self.variant(
-            lambda a, b: bisect_jax(f, a, b)
-        )(jnp.array(1.0), jnp.array(4.0))
+        root, status, it, calls = self.variant(lambda a, b: bisect_jax(f, a, b))(
+            jnp.array(1.0), jnp.array(4.0)
+        )
 
         np.testing.assert_allclose(root, 4.0)
         assert int(status) == 0
@@ -54,11 +57,12 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_sign(self):
-        f = lambda x: x * x + 1.0
+        def f(x):
+            return x * x + 1.0
 
-        root, status, it, calls = self.variant(
-            lambda a, b: bisect_jax(f, a, b)
-        )(jnp.array(-1.0), jnp.array(1.0))
+        root, status, it, calls = self.variant(lambda a, b: bisect_jax(f, a, b))(
+            jnp.array(-1.0), jnp.array(1.0)
+        )
 
         assert bool(jnp.isnan(root))
         assert int(status) == -1
@@ -70,9 +74,9 @@ class BisectTest(chex.TestCase):
         def f(x):
             return jnp.where(x < 0.0, jnp.nan, x - 1.0)
 
-        root, status, it, calls = self.variant(
-            lambda a, b: bisect_jax(f, a, b)
-        )(jnp.array(-1.0), jnp.array(2.0))
+        root, status, it, calls = self.variant(lambda a, b: bisect_jax(f, a, b))(
+            jnp.array(-1.0), jnp.array(2.0)
+        )
 
         assert bool(jnp.isnan(root))
         assert int(status) == -3
@@ -81,7 +85,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_mid(self):
-        f = lambda x: x
+        def f(x):
+            return x
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
@@ -100,7 +105,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_reverse(self):
-        f = lambda x: 2.0 - x
+        def f(x):
+            return 2.0 - x
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
@@ -145,7 +151,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_tol(self):
-        f = lambda x: x * x - 2.0
+        def f(x):
+            return x * x - 2.0
 
         loose = self.variant(
             lambda a, b: bisect_jax(
@@ -181,7 +188,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_cap(self):
-        f = lambda x: x - 0.3
+        def f(x):
+            return x - 0.3
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
@@ -200,7 +208,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_badmax(self):
-        f = lambda x: x - 0.5
+        def f(x):
+            return x - 0.5
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
@@ -218,7 +227,8 @@ class BisectTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_zeroiter(self):
-        f = lambda x: x - 0.25
+        def f(x):
+            return x - 0.25
 
         root, status, it, calls = self.variant(
             lambda a, b: bisect_jax(
