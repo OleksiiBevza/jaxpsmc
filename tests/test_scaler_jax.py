@@ -226,7 +226,9 @@ class ScalerTest(chex.TestCase):
 
         p = jax.nn.sigmoid(u[:, 3:4])
         expected_x = -2.0 + 4.0 * p
-        expected_logdet = jnp.log(jnp.asarray(4.0, dtype=u.dtype)) + jnp.log(p) + jnp.log1p(-p)
+        expected_logdet = (
+            jnp.log(jnp.asarray(4.0, dtype=u.dtype)) + jnp.log(p) + jnp.log1p(-p)
+        )
         expected_p = (x[:, 3:4] + 2.0) / 4.0
         expected_u = jnp.log(expected_p) - jnp.log1p(-expected_p)
 
@@ -246,9 +248,15 @@ class ScalerTest(chex.TestCase):
         u_sel = _forward_both_jax(x, low, high, mask, transform_id)
 
         expected_x = -2.0 + 4.0 * jsp.special.ndtr(u)
-        expected_logdet = jnp.log(jnp.asarray(4.0, dtype=u.dtype)) - 0.5 * u * u - jnp.log(jnp.sqrt(jnp.asarray(2.0 * np.pi, dtype=u.dtype)))
+        expected_logdet = (
+            jnp.log(jnp.asarray(4.0, dtype=u.dtype))
+            - 0.5 * u * u
+            - jnp.log(jnp.sqrt(jnp.asarray(2.0 * np.pi, dtype=u.dtype)))
+        )
         p = (x + 2.0) / 4.0
-        expected_u = jnp.sqrt(jnp.asarray(2.0, dtype=x.dtype)) * jsp.special.erfinv(2.0 * p - 1.0)
+        expected_u = jnp.sqrt(jnp.asarray(2.0, dtype=x.dtype)) * jsp.special.erfinv(
+            2.0 * p - 1.0
+        )
 
         np.testing.assert_allclose(x_sel, expected_x, rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(logdet, expected_logdet, rtol=1e-6, atol=1e-6)
@@ -315,12 +323,8 @@ class ScalerTest(chex.TestCase):
         L = jnp.eye(2, dtype=jnp.float64)
         log_det_L = jnp.asarray(0.0, dtype=jnp.float64)
 
-        x, logdet = _inverse_affine_jax(
-            u, mu, sigma, L, log_det_L, jnp.asarray(True)
-        )
-        u_back = _forward_affine_jax(
-            x, mu, sigma, L, jnp.asarray(True)
-        )
+        x, logdet = _inverse_affine_jax(u, mu, sigma, L, log_det_L, jnp.asarray(True))
+        u_back = _forward_affine_jax(x, mu, sigma, L, jnp.asarray(True))
 
         np.testing.assert_allclose(x, mu + sigma * u, rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(u_back, u, rtol=1e-6, atol=1e-6)
@@ -335,16 +339,14 @@ class ScalerTest(chex.TestCase):
         u = jnp.asarray([[0.0, 1.0], [2.0, -1.0]], dtype=jnp.float64)
         mu = jnp.asarray([1.0, -2.0], dtype=jnp.float64)
         L = jnp.asarray([[2.0, 0.0], [0.5, 1.5]], dtype=jnp.float64)
-        L_inv = jsp.linalg.solve_triangular(L, jnp.eye(2, dtype=jnp.float64), lower=True)
+        L_inv = jsp.linalg.solve_triangular(
+            L, jnp.eye(2, dtype=jnp.float64), lower=True
+        )
         sigma = jnp.ones((2,), dtype=jnp.float64)
         log_det_L = jnp.sum(jnp.log(jnp.diag(L)))
 
-        x, logdet = _inverse_affine_jax(
-            u, mu, sigma, L, log_det_L, jnp.asarray(False)
-        )
-        u_back = _forward_affine_jax(
-            x, mu, sigma, L_inv, jnp.asarray(False)
-        )
+        x, logdet = _inverse_affine_jax(u, mu, sigma, L, log_det_L, jnp.asarray(False))
+        u_back = _forward_affine_jax(x, mu, sigma, L_inv, jnp.asarray(False))
 
         np.testing.assert_allclose(x, mu + u @ L.T, rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(u_back, u, rtol=1e-6, atol=1e-6)
@@ -357,7 +359,9 @@ class ScalerTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_fit_diag(self):
-        bounds = jnp.asarray([[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64)
+        bounds = jnp.asarray(
+            [[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64
+        )
         cfg = init_bounds_config_jax(2, bounds=bounds, scale=True, diagonal=True)
         msk = masks_jax(cfg["low"], cfg["high"])
         x = jnp.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 8.0]], dtype=jnp.float64)
@@ -372,7 +376,9 @@ class ScalerTest(chex.TestCase):
 
         np.testing.assert_allclose(mu, jnp.mean(x, axis=0), rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(sigma, jnp.std(x, axis=0), rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(cov, jnp.eye(2, dtype=cov.dtype), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            cov, jnp.eye(2, dtype=cov.dtype), rtol=1e-6, atol=1e-6
+        )
         np.testing.assert_allclose(u, (x - mu) / sigma, rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(x_back, x, rtol=1e-5, atol=1e-5)
         np.testing.assert_allclose(
@@ -384,7 +390,9 @@ class ScalerTest(chex.TestCase):
 
     @chex.all_variants(with_pmap=False)
     def test_fit_full(self):
-        bounds = jnp.asarray([[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64)
+        bounds = jnp.asarray(
+            [[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64
+        )
         cfg = init_bounds_config_jax(2, bounds=bounds, scale=True, diagonal=False)
         msk = masks_jax(cfg["low"], cfg["high"])
         x = jnp.asarray(
@@ -453,7 +461,9 @@ class ScalerTest(chex.TestCase):
     def test_boundary(self):
         cfg = init_bounds_config_jax(
             3,
-            bounds=jnp.asarray([[0.0, 10.0], [0.0, 5.0], [-jnp.inf, jnp.inf]], dtype=jnp.float64),
+            bounds=jnp.asarray(
+                [[0.0, 10.0], [0.0, 5.0], [-jnp.inf, jnp.inf]], dtype=jnp.float64
+            ),
             periodic=jnp.asarray([0]),
             reflective=jnp.asarray([1]),
             scale=False,
@@ -474,7 +484,9 @@ class ScalerTest(chex.TestCase):
     def test_no_boundary(self):
         cfg = init_bounds_config_jax(
             2,
-            bounds=jnp.asarray([[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64),
+            bounds=jnp.asarray(
+                [[-jnp.inf, jnp.inf], [-jnp.inf, jnp.inf]], dtype=jnp.float64
+            ),
             scale=False,
         )
         x = jnp.asarray([[1.0, -2.0], [3.0, 4.0]], dtype=jnp.float64)

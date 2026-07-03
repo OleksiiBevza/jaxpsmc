@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import chex
 import jax
 
@@ -30,8 +31,8 @@ class PersistentTest(SamplerHelperBase):
                 jnp.asarray(0.5, dtype=s.logl.dtype),
                 bins=16,
                 bisect_steps=8,
-                keep_max=1,      # must be ignored by exact persistent mode
-                trim_ess=0.25,   # must be ignored by exact persistent mode
+                keep_max=1,  # must be ignored by exact persistent mode
+                trim_ess=0.25,  # must be ignored by exact persistent mode
             )
 
         cur, n_eff, stats = self.variant(run)(state)
@@ -99,7 +100,9 @@ class PersistentTest(SamplerHelperBase):
         )
         np.testing.assert_allclose(
             cur["blobs"],
-            jnp.where(mask_flat[:, None], blobs_flat, jnp.asarray(0.0, blobs_flat.dtype)),
+            jnp.where(
+                mask_flat[:, None], blobs_flat, jnp.asarray(0.0, blobs_flat.dtype)
+            ),
             rtol=1e-6,
             atol=1e-6,
         )
@@ -113,9 +116,16 @@ class PersistentTest(SamplerHelperBase):
         expected_weights = jnp.where(mask_flat, expected_weights, 0.0)
         expected_weights = expected_weights / jnp.sum(expected_weights)
 
-        np.testing.assert_allclose(cur["weights"], expected_weights, rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            cur["weights"], expected_weights, rtol=1e-6, atol=1e-6
+        )
         np.testing.assert_allclose(jnp.sum(cur["weights"]), 1.0, rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(cur["weights"], jnp.where(mask_flat, cur["weights"], 0.0), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            cur["weights"],
+            jnp.where(mask_flat, cur["weights"], 0.0),
+            rtol=1e-6,
+            atol=1e-6,
+        )
         np.testing.assert_allclose(cur["ess"], expected_metric, rtol=1e-6, atol=1e-6)
         np.testing.assert_allclose(cur["logz"], expected_logz, rtol=1e-6, atol=1e-6)
 
@@ -181,15 +191,25 @@ class PersistentTest(SamplerHelperBase):
             "keep_mask",
             "trim_mask_full",
         ):
-            np.testing.assert_allclose(cur_small[key], cur_large[key], rtol=1e-6, atol=1e-6)
+            np.testing.assert_allclose(
+                cur_small[key], cur_large[key], rtol=1e-6, atol=1e-6
+            )
 
-        np.testing.assert_allclose(cur_small["beta"], cur_large["beta"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(cur_small["logz"], cur_large["logz"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(cur_small["ess"], cur_large["ess"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            cur_small["beta"], cur_large["beta"], rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            cur_small["logz"], cur_large["logz"], rtol=1e-6, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            cur_small["ess"], cur_large["ess"], rtol=1e-6, atol=1e-6
+        )
         np.testing.assert_array_equal(n_eff_small, n_eff_large)
 
         for key in ("beta", "logz", "ess", "n_effective"):
-            np.testing.assert_allclose(stats_small[key], stats_large[key], rtol=1e-6, atol=1e-6)
+            np.testing.assert_allclose(
+                stats_small[key], stats_large[key], rtol=1e-6, atol=1e-6
+            )
 
     @chex.all_variants(with_pmap=False)
     def test_reweight_persistent_and_truncated_share_beta_logz_and_metric(self):
@@ -321,7 +341,9 @@ class PersistentTest(SamplerHelperBase):
             rtol=1e-6,
             atol=1e-6,
         )
-        np.testing.assert_allclose(out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype))
+        np.testing.assert_allclose(
+            out["weights"], 0.25 * jnp.ones((4,), dtype=cur["u"].dtype)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_reweight_persistent_blob0(self):
@@ -345,7 +367,9 @@ class PersistentTest(SamplerHelperBase):
 
         assert cur["u"].shape == (6, 2)
         assert cur["blobs"].shape == (6, 0)
-        np.testing.assert_allclose(cur["blobs"], jnp.zeros((6, 0), dtype=state.logl.dtype))
+        np.testing.assert_allclose(
+            cur["blobs"], jnp.zeros((6, 0), dtype=state.logl.dtype)
+        )
         np.testing.assert_allclose(jnp.sum(cur["weights"]), 1.0, rtol=1e-6, atol=1e-6)
 
     @chex.all_variants(with_pmap=False)

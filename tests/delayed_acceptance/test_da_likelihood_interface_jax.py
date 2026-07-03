@@ -69,12 +69,8 @@ class DALikelihoodTest(chex.TestCase):
         return jax.vmap(self._transform)(x)
 
     def test_code(self):
-        assert int(da_target_type("approx_posterior")) == int(
-            TYPE_APPROX_POSTERIOR
-        )
-        assert int(da_target_type("approx_likelihood")) == int(
-            TYPE_APPROX_LIKELIHOOD
-        )
+        assert int(da_target_type("approx_posterior")) == int(TYPE_APPROX_POSTERIOR)
+        assert int(da_target_type("approx_likelihood")) == int(TYPE_APPROX_LIKELIHOOD)
         assert int(da_target_type("full_likelihood")) == int(TYPE_FULL_LIKELIHOOD)
         assert int(da_target_type("full_posterior")) == int(TYPE_FULL_POSTERIOR)
         assert int(da_target_type("prior")) == int(TYPE_PRIOR)

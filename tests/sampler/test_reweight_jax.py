@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import chex
 import jax
 
@@ -68,7 +69,9 @@ class ReweightTest(SamplerHelperBase):
         assert weights.shape == (6,)
         assert logw.shape == (6,)
         np.testing.assert_allclose(jnp.sum(weights), 1.0, rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(metric, effective_sample_size_jax(weights), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            metric, effective_sample_size_jax(weights), rtol=1e-6, atol=1e-6
+        )
         assert bool(jnp.isfinite(logz))
         np.testing.assert_array_equal(jnp.isneginf(logw[-2:]), jnp.array([True, True]))
 

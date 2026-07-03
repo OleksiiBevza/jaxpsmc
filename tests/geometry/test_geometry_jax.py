@@ -114,9 +114,7 @@ class GeometryTest(chex.TestCase):
         )
         jitter = jnp.array(1e-3, dtype=jnp.float64)
 
-        mu, cov = self.variant(
-            lambda x: _cov_unweighted(x, jitter=jitter)
-        )(theta)
+        mu, cov = self.variant(lambda x: _cov_unweighted(x, jitter=jitter))(theta)
 
         np.testing.assert_allclose(mu, jnp.array([1.0, 1.0]))
         np.testing.assert_allclose(cov, jitter * jnp.eye(2), rtol=1e-12)
@@ -214,9 +212,7 @@ class GeometryTest(chex.TestCase):
     def test_nu(self):
         nu = jnp.array([2.5, jnp.inf, -jnp.inf, jnp.nan], dtype=jnp.float64)
 
-        out = self.variant(
-            lambda x: _sanitize_nu(x, nu_cap=100.0)
-        )(nu)
+        out = self.variant(lambda x: _sanitize_nu(x, nu_cap=100.0))(nu)
 
         expected = jnp.array([2.5, 100.0, 100.0, 100.0], dtype=jnp.float64)
         np.testing.assert_allclose(out, expected, rtol=1e-12, atol=1e-12)
@@ -241,7 +237,7 @@ class GeometryTest(chex.TestCase):
 
         np.testing.assert_allclose(geom.normal_mean, mu_ref, rtol=1e-10, atol=1e-10)
         np.testing.assert_allclose(geom.normal_cov, cov_ref, rtol=1e-10, atol=1e-10)
-        #np.testing.assert_allclose(key_out, self.key)
+        # np.testing.assert_allclose(key_out, self.key)
         np.testing.assert_array_equal(
             jax.random.key_data(key_out),
             jax.random.key_data(self.key),
@@ -307,7 +303,7 @@ class GeometryTest(chex.TestCase):
         np.testing.assert_allclose(geom1.t_mean, geom2.t_mean)
         np.testing.assert_allclose(geom1.t_cov, geom2.t_cov)
         np.testing.assert_allclose(geom1.t_nu, geom2.t_nu)
-        #np.testing.assert_allclose(key1, key2)
+        # np.testing.assert_allclose(key1, key2)
         np.testing.assert_array_equal(
             jax.random.key_data(key1),
             jax.random.key_data(key2),
@@ -341,7 +337,6 @@ class GeometryTest(chex.TestCase):
     @chex.all_variants(with_pmap=False)
     def test_one(self):
         theta = jnp.array([[2.0, -1.0]], dtype=jnp.float64)
-        weights = jnp.array([1.0], dtype=jnp.float64)
 
         mu, cov = self.variant(
             lambda x: _cov_unweighted(

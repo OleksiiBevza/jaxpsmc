@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 import chex
 import jax
 
@@ -18,7 +19,9 @@ class MutateTest(SamplerHelperBase):
 
         ll, blob = _log_like(x, self._loglike)
 
-        np.testing.assert_allclose(ll, -0.5 * np.sum((np.asarray(x) - 0.25) ** 2), rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            ll, -0.5 * np.sum((np.asarray(x) - 0.25) ** 2), rtol=1e-6, atol=1e-6
+        )
         np.testing.assert_allclose(blob, jnp.asarray([3.0], dtype=jnp.float32))
 
     def test_loglike_batch(self):
@@ -72,7 +75,9 @@ class MutateTest(SamplerHelperBase):
             "accept",
         }
         assert set(out.keys()) == expected
-        np.testing.assert_array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        np.testing.assert_array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
         np.testing.assert_allclose(out["u"], cur["u"])
         np.testing.assert_allclose(out["x"], cur["x"])
         np.testing.assert_allclose(out["logl"], cur["logl"])
@@ -80,7 +85,9 @@ class MutateTest(SamplerHelperBase):
         np.testing.assert_array_equal(out["calls"], cur["calls"])
         np.testing.assert_array_equal(out["steps"], jnp.asarray(0, dtype=jnp.int32))
         np.testing.assert_allclose(out["accept"], 0.0)
-        np.testing.assert_array_equal(info["calls_increment"], jnp.asarray(0, dtype=jnp.int32))
+        np.testing.assert_array_equal(
+            info["calls_increment"], jnp.asarray(0, dtype=jnp.int32)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_mutate_pcn_kernel_active(self):
@@ -145,10 +152,14 @@ class MutateTest(SamplerHelperBase):
         )
         assert 1 <= int(out["steps"]) <= 2
         assert int(info["calls_increment"]) >= 0
-        np.testing.assert_array_equal(out["calls"], cur["calls"] + info["calls_increment"])
+        np.testing.assert_array_equal(
+            out["calls"], cur["calls"] + info["calls_increment"]
+        )
         np.testing.assert_array_equal(out["steps"], info["steps"])
         np.testing.assert_allclose(out["accept"], info["accept"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6
+        )
         assert 0.0 <= float(out["accept"]) <= 1.0
         assert 0.0 <= float(out["proposal_scale"]) <= 0.99
         assert bool(jnp.all(jnp.isfinite(out["u"])))
@@ -193,7 +204,9 @@ class MutateTest(SamplerHelperBase):
 
         key_out, out, info = self.variant(run)(self.key, cur)
 
-        np.testing.assert_array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        np.testing.assert_array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
         np.testing.assert_allclose(out["u"], cur["u"])
         np.testing.assert_allclose(out["x"], cur["x"])
         np.testing.assert_allclose(out["logdetj"], cur["logdetj"])
@@ -204,7 +217,9 @@ class MutateTest(SamplerHelperBase):
         np.testing.assert_array_equal(out["calls"], cur["calls"])
         np.testing.assert_array_equal(out["steps"], jnp.asarray(0, dtype=jnp.int32))
         np.testing.assert_allclose(out["accept"], 0.0)
-        np.testing.assert_array_equal(info["calls_increment"], jnp.asarray(0, dtype=jnp.int32))
+        np.testing.assert_array_equal(
+            info["calls_increment"], jnp.asarray(0, dtype=jnp.int32)
+        )
         np.testing.assert_allclose(out["proposal_scale"], cur["proposal_scale"])
 
     @chex.all_variants(with_pmap=False)
@@ -280,10 +295,14 @@ class MutateTest(SamplerHelperBase):
         )
         assert 1 <= int(out["steps"]) <= 2
         assert int(info["calls_increment"]) >= 0
-        np.testing.assert_array_equal(out["calls"], cur["calls"] + info["calls_increment"])
+        np.testing.assert_array_equal(
+            out["calls"], cur["calls"] + info["calls_increment"]
+        )
         np.testing.assert_array_equal(out["steps"], info["steps"])
         np.testing.assert_allclose(out["accept"], info["accept"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6
+        )
         assert 0.0 <= float(out["accept"]) <= 1.0
         assert 0.0 <= float(out["proposal_scale"]) <= 0.99
         assert bool(jnp.all(jnp.isfinite(out["u"])))
@@ -325,7 +344,9 @@ class MutateTest(SamplerHelperBase):
 
         key_out, out, info = self.variant(run)(self.key, cur)
 
-        np.testing.assert_array_equal(jax.random.key_data(key_out), jax.random.key_data(self.key))
+        np.testing.assert_array_equal(
+            jax.random.key_data(key_out), jax.random.key_data(self.key)
+        )
         np.testing.assert_allclose(out["u"], cur["u"])
         np.testing.assert_allclose(out["x"], cur["x"])
         np.testing.assert_allclose(out["logdetj"], cur["logdetj"])
@@ -336,7 +357,9 @@ class MutateTest(SamplerHelperBase):
         np.testing.assert_array_equal(out["calls"], cur["calls"])
         np.testing.assert_array_equal(out["steps"], jnp.asarray(0, dtype=jnp.int32))
         np.testing.assert_allclose(out["accept"], 0.0)
-        np.testing.assert_array_equal(info["calls_increment"], jnp.asarray(0, dtype=jnp.int32))
+        np.testing.assert_array_equal(
+            info["calls_increment"], jnp.asarray(0, dtype=jnp.int32)
+        )
         np.testing.assert_allclose(out["proposal_scale"], cur["proposal_scale"])
 
     @chex.all_variants(with_pmap=False)
@@ -409,10 +432,14 @@ class MutateTest(SamplerHelperBase):
         )
         assert 0 <= int(out["steps"]) <= 2
         assert int(info["calls_increment"]) >= 0
-        np.testing.assert_array_equal(out["calls"], cur["calls"] + info["calls_increment"])
+        np.testing.assert_array_equal(
+            out["calls"], cur["calls"] + info["calls_increment"]
+        )
         np.testing.assert_array_equal(out["steps"], info["steps"])
         np.testing.assert_allclose(out["accept"], info["accept"], rtol=1e-6, atol=1e-6)
-        np.testing.assert_allclose(out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            out["proposal_scale"], info["proposal_scale"], rtol=1e-6, atol=1e-6
+        )
         assert 0.0 <= float(out["accept"]) <= 1.0
         assert 0.0 <= float(out["proposal_scale"]) <= 0.99
         assert bool(jnp.all(jnp.isfinite(out["u"])))

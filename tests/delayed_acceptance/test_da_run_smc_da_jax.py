@@ -470,7 +470,7 @@ class RunSMCDATest(chex.TestCase):
         assert bool(jnp.isfinite(stats.ess[0]))
 
     @chex.all_variants(with_pmap=False)
-    def test_scan_persistent(self):
+    def test_scan_persistent_max(self):
         carry0 = self._carry(beta=0.5)
 
         carry1, stats = self.variant(

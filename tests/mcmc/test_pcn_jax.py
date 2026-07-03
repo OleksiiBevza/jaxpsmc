@@ -297,7 +297,9 @@ class PcnTest(chex.TestCase):
         )(self.key)
 
         assert out["blobs"].shape == (4, 0)
-        np.testing.assert_allclose(out["blobs"], jnp.zeros((4, 0), dtype=data["u"].dtype))
+        np.testing.assert_allclose(
+            out["blobs"], jnp.zeros((4, 0), dtype=data["u"].dtype)
+        )
 
     @chex.all_variants(with_pmap=False)
     def test_da(self):
