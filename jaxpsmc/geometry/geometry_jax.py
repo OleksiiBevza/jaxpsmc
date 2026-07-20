@@ -11,10 +11,6 @@ from ..student_jax import fit_mvstud_jax
 from ..tools_jax import systematic_resample_jax
 
 
-
-
-
-
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Geometry:
@@ -48,11 +44,12 @@ class Geometry:
         stores normal and Student-t geometry parameters
         in one JAX-compatible object.
     """
+
     normal_mean: jax.Array  # (D,)
-    normal_cov:  jax.Array  # (D,D)
-    t_mean:      jax.Array  # (D,)
-    t_cov:       jax.Array  # (D,D)
-    t_nu:        jax.Array  # ()
+    normal_cov: jax.Array  # (D,D)
+    t_mean: jax.Array  # (D,)
+    t_cov: jax.Array  # (D,D)
+    t_nu: jax.Array  # ()
 
     def tree_flatten(self):
         """
@@ -72,7 +69,13 @@ class Geometry:
             tuple containing the array fields and auxiliary data.
             Auxiliary data is None here.
         """
-        return (self.normal_mean, self.normal_cov, self.t_mean, self.t_cov, self.t_nu), None
+        return (
+            self.normal_mean,
+            self.normal_cov,
+            self.t_mean,
+            self.t_cov,
+            self.t_nu,
+        ), None
 
     @classmethod
     def tree_unflatten(cls, aux, children):
@@ -95,7 +98,7 @@ class Geometry:
         Geometry:
             rebuilt Geometry object.
         """
-        # unpack saved fields    
+        # unpack saved fields
         nm, nc, tm, tc, tnu = children
         # rebuild dataclass
         return cls(nm, nc, tm, tc, tnu)
@@ -122,7 +125,7 @@ class Geometry:
             initial Geometry object with zero means,
             zero covariance matrices, and large Student-t degrees of freedom.
         """
-        # create zero mean vectors      
+        # create zero mean vectors
         z1 = jnp.zeros((dim,), dtype=dtype)
         # create zero covariance matrice
         z2 = jnp.zeros((dim, dim), dtype=dtype)
@@ -133,7 +136,9 @@ class Geometry:
 
 
 @jax.jit
-def _cov_unweighted(theta: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, jax.Array]:
+def _cov_unweighted(
+    theta: jax.Array, *, jitter: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
     """
     Computes the unweighted sample mean and covariance.
 
@@ -174,7 +179,9 @@ def _cov_unweighted(theta: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, 
 
 
 @jax.jit
-def _cov_weighted_aweights(theta: jax.Array, weights: jax.Array, *, jitter: jax.Array) -> Tuple[jax.Array, jax.Array]:
+def _cov_weighted_aweights(
+    theta: jax.Array, weights: jax.Array, *, jitter: jax.Array
+) -> Tuple[jax.Array, jax.Array]:
     """
     Computes the weighted sample mean and covariance.
 
@@ -205,9 +212,11 @@ def _cov_weighted_aweights(theta: jax.Array, weights: jax.Array, *, jitter: jax.
     n, d = theta.shape
     dtype = theta.dtype
 
-    # validate weights 
+    # validate weights
     wsum = jnp.sum(w)
-    bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    bad = (
+        (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(w)) | jnp.any(w < 0)
+    )
 
     # normalize weights if they valid
     w = w / jnp.where(bad, jnp.asarray(1.0, dtype), wsum)
@@ -220,15 +229,17 @@ def _cov_weighted_aweights(theta: jax.Array, weights: jax.Array, *, jitter: jax.
     # correction factor for normalized analytical weights.
     # normalization: fact = 1 / (1 - sum(w^2))   because w is normalized to sum=1
     w2sum = jnp.sum(w * w)
-    denom = (jnp.asarray(1.0, dtype) - w2sum)
-    fact = jnp.where(denom > 0, jnp.asarray(1.0, dtype) / denom, jnp.asarray(0.0, dtype))
+    denom = jnp.asarray(1.0, dtype) - w2sum
+    fact = jnp.where(
+        denom > 0, jnp.asarray(1.0, dtype) / denom, jnp.asarray(0.0, dtype)
+    )
 
     # compute weighted covariance
     cov = (xc * w[:, None]).T @ xc
     cov = cov * fact
     # force matrix to be symmetric
     cov = 0.5 * (cov + cov.T)
-    # diagonal jitter gives stability here 
+    # diagonal jitter gives stability here
     cov = cov + jitter * jnp.eye(d, dtype=dtype)
 
     # go back to unweighted result if the weights are bad
@@ -259,7 +270,7 @@ def _sanitize_nu(nu: jax.Array, nu_cap: float) -> jax.Array:
     jax.Array:
         finite degrees of freedom value.
     """
-    # convert cap to same dtype as nu 
+    # convert cap to same dtype as nu
     cap = jnp.asarray(nu_cap, dtype=nu.dtype)
     # keep nu if finite, otherwise use cap
     return jnp.where(jnp.isfinite(nu), nu, cap)
@@ -268,10 +279,10 @@ def _sanitize_nu(nu: jax.Array, nu_cap: float) -> jax.Array:
 @partial(jax.jit, static_argnames=("nu_cap",))
 def geometry_fit_jax(
     geom: Geometry,
-    theta: jax.Array,          # (N,D)
-    weights: jax.Array,        # (N,)
-    use_weights: jax.Array,    # bool scalar: if True, use weights logic
-    key: jax.Array,            # PRNGKey
+    theta: jax.Array,  # (N,D)
+    weights: jax.Array,  # (N,)
+    use_weights: jax.Array,  # bool scalar: if True, use weights logic
+    key: jax.Array,  # PRNGKey
     *,
     nu_cap: float = 1e6,
     jitter: float = 1e-9,
@@ -342,7 +353,7 @@ def geometry_fit_jax(
         Tuple[jax.Array, jax.Array]:
             weighted mean and weighted covariance.
         """
-        # use weighted covariance 
+        # use weighted covariance
         return _cov_weighted_aweights(theta, weights, jitter=jitter)
 
     def _do_unweighted(_):
@@ -361,8 +372,11 @@ def geometry_fit_jax(
         """
         # use unweighted covariance
         return _cov_unweighted(theta, jitter=jitter)
+
     # choose weighted or unweighted normal fit
-    normal_mean, normal_cov = lax.cond(use_weights, _do_weighted, _do_unweighted, operand=None)
+    normal_mean, normal_cov = lax.cond(
+        use_weights, _do_weighted, _do_unweighted, operand=None
+    )
 
     # read nr of samples
     n = theta.shape[0]
@@ -391,7 +405,12 @@ def geometry_fit_jax(
         """
         # normalize weights for resampling
         wsum = jnp.sum(weights)
-        bad = (wsum <= 0) | (~jnp.isfinite(wsum)) | jnp.any(~jnp.isfinite(weights)) | jnp.any(weights < 0)
+        bad = (
+            (wsum <= 0)
+            | (~jnp.isfinite(wsum))
+            | jnp.any(~jnp.isfinite(weights))
+            | jnp.any(weights < 0)
+        )
         w_norm = weights / jnp.where(bad, jnp.asarray(1.0, theta.dtype), wsum)
 
         # resample indices using systematic resampling
@@ -401,7 +420,7 @@ def geometry_fit_jax(
         # build resampled sample matrix
         theta_rs = theta[idx_safe]
         # fit multivariate Student-t model on resampled data
-        t_mean, t_cov, t_nu, _info = fit_mvstud_jax(theta_rs)  
+        t_mean, t_cov, t_nu, _info = fit_mvstud_jax(theta_rs)
         return t_mean, t_cov, _sanitize_nu(t_nu, nu_cap), key_out, status
 
     def _t_fit_direct(_):
@@ -430,8 +449,11 @@ def geometry_fit_jax(
         # use zero to mark that no resampling error occurred
         status = jnp.int64(0)
         return t_mean, t_cov, _sanitize_nu(t_nu, nu_cap), key, status
+
     # choose direct fit or resampled fit for the Student-t model
-    t_mean, t_cov, t_nu, key_out, resample_status = lax.cond(use_weights, _t_fit_resampled, _t_fit_direct, operand=None)
+    t_mean, t_cov, t_nu, key_out, resample_status = lax.cond(
+        use_weights, _t_fit_resampled, _t_fit_direct, operand=None
+    )
     # build new Geometry object from the fitted values
     geom_new = Geometry(
         normal_mean=normal_mean,
@@ -441,6 +463,3 @@ def geometry_fit_jax(
         t_nu=t_nu,
     )
     return geom_new, key_out, resample_status
-
-
-
