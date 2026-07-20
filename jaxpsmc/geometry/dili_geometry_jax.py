@@ -41,6 +41,7 @@ class DILIPCNGeometry(NamedTuple):
         calculations, for example in delayed acceptance.
         Shape is (D, D).
     """
+
     center: Array
     basis: Array
     post_var: Array
@@ -86,8 +87,10 @@ def _normalize_weights_jax(weights: Array) -> Array:
 
     # number of particles
     n = weights.shape[0]
-    # fallback weights: every particle gets the same weight  
-    w_uniform = jnp.full((n,), jnp.asarray(1.0, dtype=dtype) / jnp.asarray(n, dtype=dtype))
+    # fallback weights: every particle gets the same weight
+    w_uniform = jnp.full(
+        (n,), jnp.asarray(1.0, dtype=dtype) / jnp.asarray(n, dtype=dtype)
+    )
     # normalize valid weights. If weights bad, divide by 1 to avoid NaNs
     w_norm = weights / jnp.where(bad, jnp.asarray(1.0, dtype=dtype), wsum)
     # return normalized weights if valid, if not, use uniform weights
@@ -213,7 +216,9 @@ def build_dili_pcn_geometry_jax(
     gnh_floor_arr = jnp.asarray(gnh_floor, dtype=dtype)
     cov_floor_arr = jnp.asarray(cov_floor, dtype=dtype)
     # check complement variance is not smaller than covariance floor
-    complement_var_arr = jnp.maximum(jnp.asarray(complement_var, dtype=dtype), cov_floor_arr)
+    complement_var_arr = jnp.maximum(
+        jnp.asarray(complement_var, dtype=dtype), cov_floor_arr
+    )
 
     # weighted center in theta-space: point around which the LIS coordinates are centered
     center = jnp.sum(theta * weights[:, None], axis=0)
@@ -221,10 +226,12 @@ def build_dili_pcn_geometry_jax(
     # evaluate local GNH matrix at every selected particle
     Hs = jax.vmap(local_gnh_fn, in_axes=0, out_axes=0)(theta)
     # make every local GNH matrix symmetric PSD
-    Hs = jax.vmap(lambda h: _project_psd_jax(h, gnh_floor_arr), in_axes=0, out_axes=0)(Hs)
+    Hs = jax.vmap(lambda h: _project_psd_jax(h, gnh_floor_arr), in_axes=0, out_axes=0)(
+        Hs
+    )
     # compute weighted expected local GNH matrix, it defines first approximation of the LIS
     S = jnp.sum(Hs * weights[:, None, None], axis=0)
-    # stabilize expected GNH matrix   
+    # stabilize expected GNH matrix
     S = _project_psd_jax(S, gnh_floor_arr)
 
     # diagonalize the expected GNH matrix
@@ -237,20 +244,22 @@ def build_dili_pcn_geometry_jax(
     evecs = jnp.take(evecs, order, axis=1)
 
     # take first r eigenvectors as preliminary LIS basis
-    theta_basis = evecs[:, :rank]          # (D, r)
+    theta_basis = evecs[:, :rank]  # (D, r)
     # store corresponding GNH eigenvalues
-    gnh_eigvals = evals[:rank]             # (r,)
+    gnh_eigvals = evals[:rank]  # (r,)
 
     # project centered particles into preliminary LIS
-    z = (theta - center[None, :]) @ theta_basis     # (K, r)
+    z = (theta - center[None, :]) @ theta_basis  # (K, r)
     # compute weighted mean in LIS coordinates
     z_mean = jnp.sum(z * weights[:, None], axis=0)
-    # center projected particles    
+    # center projected particles
     zc = z - z_mean[None, :]
 
     # weighted covariance correction 1 / (1 - sum(w^2))
     w2 = jnp.sum(weights * weights)
-    denom = jnp.maximum(jnp.asarray(1.0, dtype=dtype) - w2, jnp.asarray(1e-12, dtype=dtype))
+    denom = jnp.maximum(
+        jnp.asarray(1.0, dtype=dtype) - w2, jnp.asarray(1e-12, dtype=dtype)
+    )
 
     # estimate posterior covariance inside preliminary LIS
     Sigma_r = (zc * weights[:, None]).T @ zc / denom
@@ -283,7 +292,7 @@ def build_dili_pcn_geometry_jax(
         + complement_var_arr * (jnp.eye(d, dtype=dtype) - P)
         + cov_floor_arr * jnp.eye(d, dtype=dtype)
     )
-    # make final covariance exactly symmetric up to numerical precision    
+    # make final covariance exactly symmetric up to numerical precision
     cov_ref = _symmetrize_jax(cov_ref)
 
     return DILIPCNGeometry(
