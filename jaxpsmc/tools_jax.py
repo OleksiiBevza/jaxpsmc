@@ -1,7 +1,8 @@
 from functools import partial
+
+import jax
 import jax.numpy as jnp
 from jax import lax
-import jax
 
 jax.config.update("jax_enable_x64", True)
 
@@ -73,7 +74,7 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
 
     # define percentile grid and sorted weights
     percentiles = jnp.linspace(jnp.asarray(0.0, dtype), jnp.asarray(99.0, dtype), bins)
-    sorted_w = jnp.sort(w)  #
+    sorted_w = jnp.sort(w)
 
     # nr of weights
     n = w.shape[0]
@@ -153,7 +154,7 @@ def trim_weights_jax(samples, weights, ess=0.99, bins=1000):
             True means another search step should run.
         """
         # continue until valid threshold has been found
-        i, done = state
+        _i, done = state
         return ~done
 
     def body(state):

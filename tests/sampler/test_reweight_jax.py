@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 import chex
 import jax
 
@@ -6,6 +5,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 import numpy as np
+from _sampler_test_utils import SamplerHelperBase
 from absl.testing import absltest
 
 from jaxpsmc.sampler.constants_jax import METRIC_ESS, METRIC_USS
@@ -17,8 +17,6 @@ from jaxpsmc.sampler.reweight_jax import (
     reweight_step_jax,
 )
 from jaxpsmc.tools_jax import effective_sample_size_jax, unique_sample_size_jax
-
-from _sampler_test_utils import SamplerHelperBase
 
 
 class ReweightTest(SamplerHelperBase):

@@ -1,0 +1,25 @@
+target-version = "py311"
+line-length = 88
+
+[lint]
+select = [
+    "E4",
+    "E7",
+    "E9",
+    "F",
+    "I",
+    "B",
+    "BLE",
+    "UP",
+    "RUF",
+]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = [
+    "jax.numpy.asarray",
+    "jax.numpy.finfo",
+]
+
+[lint.per-file-ignores]
+"jaxpsmc/student_jax.py" = ["E402"]
+"tests/**/*.py" = ["E402"]

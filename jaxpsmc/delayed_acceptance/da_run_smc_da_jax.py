@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from functools import partial
-from typing import Any, Callable, Dict, Mapping, NamedTuple, Tuple
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -10,11 +11,10 @@ from jax import lax
 from ..geometry.geometry_jax import Geometry, geometry_fit_jax
 from ..particles_jax import ParticlesState, ParticlesStep, record_step_jax
 from ..sampler.mutate_jax import mutate
-from ..sampler.termination_jax import not_termination_jax
+from ..sampler.persistent_jax import reweight_step_persistent_jax
 from ..sampler.resample_jax import resample_particles_jax
 from ..sampler.reweight_jax import reweight_step_jax
-from ..sampler.persistent_jax import reweight_step_persistent_jax
-
+from ..sampler.termination_jax import not_termination_jax
 
 Array = jax.Array
 
@@ -52,7 +52,7 @@ class SMCDACarry(NamedTuple):
 
     key: Array
     state: ParticlesState
-    current_particles: Dict[str, Array]
+    current_particles: dict[str, Array]
     geom: Geometry
     n_effective: Array
     iteration: Array
@@ -100,7 +100,7 @@ class SMCDAStepStats(NamedTuple):
 
 def _step_mutated_particles_jax(
     *,
-    mutated: Dict[str, Array],
+    mutated: dict[str, Array],
     iter_idx: Array,
     beta: Array,
     logz: Array,
@@ -194,11 +194,11 @@ def smc_da_step_jax(
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
     mutation_fn: Callable[
-        ..., Tuple[Array, Dict[str, Array], Dict[str, Array]]
+        ..., tuple[Array, dict[str, Array], dict[str, Array]]
     ] = mutate,
-    loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
+    loglike_single_fn: Callable[[Array], tuple[Array, Array]],
     logprior_fn: Callable[[Array], Array],
-) -> Tuple[SMCDACarry, SMCDAStepStats]:
+) -> tuple[SMCDACarry, SMCDAStepStats]:
     """
     Runs one outer SMC delayed-acceptance step.
 
@@ -276,7 +276,7 @@ def smc_da_step_jax(
     Tuple[SMCDACarry, SMCDAStepStats]:
         updated carry and diagnostic statistics for this SMC-DA step.
     """
-    key, state, cur, geom, n_eff, it = carry
+    _key, state, cur, _geom, _n_eff, it = carry
     dtype = state.logl.dtype
 
     active = not_termination_jax(
@@ -287,7 +287,7 @@ def smc_da_step_jax(
         n_active=n_active_i32,
     ) & (it < jnp.asarray(n_outer_max_steps, dtype=it.dtype))
 
-    def do_step(op: SMCDACarry) -> Tuple[SMCDACarry, SMCDAStepStats]:
+    def do_step(op: SMCDACarry) -> tuple[SMCDACarry, SMCDAStepStats]:
         """
         Performs one active SMC update.
 
@@ -329,7 +329,7 @@ def smc_da_step_jax(
             trim_ess=trim_ess,
         )
 
-        def u_to_theta(ui: Array) -> Tuple[Array, Array]:
+        def u_to_theta(ui: Array) -> tuple[Array, Array]:
             """
             Transforms one particle from u-space to theta-space.
 
@@ -444,7 +444,7 @@ def smc_da_step_jax(
 
         return carry_next, stats
 
-    def skip_step(op: SMCDACarry) -> Tuple[SMCDACarry, SMCDAStepStats]:
+    def skip_step(op: SMCDACarry) -> tuple[SMCDACarry, SMCDAStepStats]:
         """
         Returns the carry unchanged when the sampler is inactive.
 
@@ -522,11 +522,11 @@ def run_smc_da_scan_jax(
     scaler_cfg: Mapping[str, Array],
     scaler_masks: Mapping[str, Array],
     mutation_fn: Callable[
-        ..., Tuple[Array, Dict[str, Array], Dict[str, Array]]
+        ..., tuple[Array, dict[str, Array], dict[str, Array]]
     ] = mutate,
-    loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
+    loglike_single_fn: Callable[[Array], tuple[Array, Array]],
     logprior_fn: Callable[[Array], Array],
-) -> Tuple[SMCDACarry, SMCDAStepStats]:
+) -> tuple[SMCDACarry, SMCDAStepStats]:
     """
     Runs several SMC-DA steps with JAX scan.
 
@@ -601,7 +601,7 @@ def run_smc_da_scan_jax(
     def scan_body(
         carry: SMCDACarry,
         _: Array,
-    ) -> Tuple[SMCDACarry, SMCDAStepStats]:
+    ) -> tuple[SMCDACarry, SMCDAStepStats]:
         """
         Runs one scan iteration.
 

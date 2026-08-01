@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 from jax import lax, random
@@ -372,7 +373,7 @@ class Prior:
         return int(self.kinds.shape[0])
 
     @staticmethod
-    def create(kinds, params) -> "Prior":
+    def create(kinds, params) -> Prior:
         """
         Creates a Prior object from distribution codes and parameters.
 

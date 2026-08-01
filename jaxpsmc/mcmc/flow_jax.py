@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import Optional, Tuple
+
 from jax import Array
 
 
 # helpers assume the flow is used to move between u-space and theta-space
 def _flow_u_to_theta_jax(
-    flow, u: Array, condition: Optional[Array] = None
-) -> Tuple[Array, Array]:
+    flow, u: Array, condition: Array | None = None
+) -> tuple[Array, Array]:
     """
     Maps values from u-space to theta-space using the flow.
 
@@ -44,8 +44,8 @@ def _flow_u_to_theta_jax(
 
 
 def _flow_theta_to_u_jax(
-    flow, theta: Array, condition: Optional[Array] = None
-) -> Tuple[Array, Array]:
+    flow, theta: Array, condition: Array | None = None
+) -> tuple[Array, Array]:
     """
     Maps values from theta-space back to u-space using the flow.
 

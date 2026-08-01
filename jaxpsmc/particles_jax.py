@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import NamedTuple, Dict
+from typing import NamedTuple
+
 import jax
 import jax.numpy as jnp
 from jax import lax
@@ -403,7 +404,7 @@ def compute_results_jax(
     state: ParticlesState,
     beta_final: float | jax.Array = 1.0,
     normalize: bool | jax.Array = True,
-) -> Dict[str, jax.Array]:
+) -> dict[str, jax.Array]:
     """
     Builds a result dictionary from the particle history state.
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -26,14 +28,12 @@ from ..scaler_jax import (
     masks_jax,
 )
 from ..tools_jax import unique_sample_size_jax
-
 from .constants_jax import METRIC_ESS, METRIC_USS
 from .mutate_jax import mutate
 from .persistent_jax import reweight_step_persistent_jax
 from .resample_jax import resample_particles_jax
 from .reweight_jax import reweight_step_jax
 from .termination_jax import not_termination_jax
-
 
 Array = jax.Array
 
@@ -111,8 +111,8 @@ class IdentityBijectionJAX:
         return cls()
 
     def transform_and_log_det(
-        self, u: Array, condition: Optional[Array] = None
-    ) -> Tuple[Array, Array]:
+        self, u: Array, condition: Array | None = None
+    ) -> tuple[Array, Array]:
         """
         Applies the forward identity transformation.
 
@@ -138,8 +138,8 @@ class IdentityBijectionJAX:
         return u, jnp.zeros(u.shape[:-1], dtype=u.dtype)
 
     def inverse_and_log_det(
-        self, theta: Array, condition: Optional[Array] = None
-    ) -> Tuple[Array, Array]:
+        self, theta: Array, condition: Array | None = None
+    ) -> tuple[Array, Array]:
         """
         Applies the inverse identity transformation.
 
@@ -276,7 +276,7 @@ class IdentityFlowJAX:
         # flow has no trainable state, so return itself
         return self
 
-    def sample(self, key: Array, n: int, condition: Optional[Array] = None) -> Array:
+    def sample(self, key: Array, n: int, condition: Array | None = None) -> Array:
         """
         Draws standard normal samples in the latent space.
 
@@ -528,8 +528,8 @@ class SamplerConfigJAX:
 
     # scaler options
     transform: str = "probit"  # "probit" or "logit"
-    periodic: Optional[jnp.ndarray] = None
-    reflective: Optional[jnp.ndarray] = None
+    periodic: jnp.ndarray | None = None
+    reflective: jnp.ndarray | None = None
 
     # initiate blobs
     blob_dim: int = 0
@@ -686,6 +686,12 @@ class RunOutputJAX:
         return cls(state=state, logz=logz, logz_err=logz_err)
 
 
+class _RunFunction(Protocol):
+    """Sampler run callable with an optional stopping-target override."""
+
+    def __call__(self, key: Array, n_total: int | None = None) -> RunOutputJAX: ...
+
+
 class SamplerJAX:
     """
     Stores the objects needed to run the JAX SMC sampler.
@@ -726,9 +732,9 @@ class SamplerJAX:
         loglike_single_fn: Callable[[Array], Any],
         cfg: SamplerConfigJAX,
         *,
-        flow: Optional[Any] = None,
-        loglike_approx_single_fn: Optional[Callable[[Array], Any]] = None,
-        local_gnh_fn: Optional[Callable[[Array], Array]] = None,
+        flow: Any | None = None,
+        loglike_approx_single_fn: Callable[[Array], Any] | None = None,
+        local_gnh_fn: Callable[[Array], Array] | None = None,
     ):
         """
         Initializes the sampler wrapper.
@@ -789,7 +795,7 @@ class SamplerJAX:
             local_gnh_fn=local_gnh_fn,
         )
 
-    def run(self, key: Array, n_total: Optional[int] = None) -> RunOutputJAX:
+    def run(self, key: Array, n_total: int | None = None) -> RunOutputJAX:
         """
         Runs the sampler from a random key.
 
@@ -827,7 +833,7 @@ def _replace_inf_rows(
     logp: Array,
     logl: Array,
     blobs: Array,
-) -> Tuple[Array, Array, Array, Array, Array, Array, Array]:
+) -> tuple[Array, Array, Array, Array, Array, Array, Array]:
     """
     Replaces rows with infinite likelihood values.
 
@@ -976,12 +982,12 @@ def _build_step_from_particles(
 def make_run_fn(
     *,
     prior: Prior,
-    loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
-    loglike_approx_single_fn: Optional[Callable[[Array], Any]],
+    loglike_single_fn: Callable[[Array], tuple[Array, Array]],
+    loglike_approx_single_fn: Callable[[Array], Any] | None,
     cfg: SamplerConfigJAX,
-    flow: Optional[Any] = None,
-    local_gnh_fn: Optional[Callable[[Array], Array]] = None,
-) -> Callable[[Array], RunOutputJAX]:
+    flow: Any | None = None,
+    local_gnh_fn: Callable[[Array], Array] | None = None,
+) -> _RunFunction:
     """
     Builds the sampler run function.
 
@@ -1052,7 +1058,7 @@ def make_run_fn(
             "sampling_mode must be 'persistent' or 'truncated_persistent'."
         )
 
-    def loglike_wrapped(x: Array) -> Tuple[Array, Array]:
+    def loglike_wrapped(x: Array) -> tuple[Array, Array]:
         """
         Converts the user likelihood output into a fixed format.
 
@@ -1284,6 +1290,7 @@ def make_run_fn(
                 dtype=dtype_i,
             )
 
+        local_gnh_effective_fn: Callable[[Array], Array] | None
         if kernel == "dili_pcn":
             if cfg.dili_autodiff_gnh:
                 local_gnh_effective_fn = _local_gnh_autodiff
@@ -1409,7 +1416,7 @@ def make_run_fn(
         )
 
         # build initial current-particle dictionary
-        current_particles0: Dict[str, Array] = {
+        current_particles0: dict[str, Array] = {
             "u": last_u,
             "x": last_x,
             "logdetj": last_logdetj,
@@ -1429,7 +1436,7 @@ def make_run_fn(
             "steps": jnp.asarray(0, dtype=jnp.int32),
         }
 
-        def _u2t_single(ui: Array) -> Tuple[Array, Array]:
+        def _u2t_single(ui: Array) -> tuple[Array, Array]:
             """
             Maps one current particle from u-space to theta-space.
 
@@ -1493,7 +1500,7 @@ def make_run_fn(
                 True means another outer SMC step should run.
             """
             # unpack values needed by the stop rule
-            key_c, state_c, cur_c, geom_c, n_eff_c2, it = carry
+            _key_c, state_c, cur_c, _geom_c, _n_eff_c2, it = carry
 
             # continue while sampler has not met stop rule
             not_done = not_termination_jax(
@@ -1543,7 +1550,7 @@ def make_run_fn(
                 trim_ess=trim_ess,
             )
 
-            def _u2t_keep(ui: Array) -> Tuple[Array, Array]:
+            def _u2t_keep(ui: Array) -> tuple[Array, Array]:
                 """
                 Maps one kept particle from u-space to theta-space.
 
@@ -1638,7 +1645,7 @@ def make_run_fn(
             }
 
             # run mutation step
-            key_c, mutated, info = mutate(
+            key_c, mutated, _info = mutate(
                 key_c,
                 cur_for_mut,
                 use_preconditioned_pcn=use_pcn,
@@ -1705,7 +1712,7 @@ def make_run_fn(
             return (key_c, state_c, cur_next, geom_new, n_eff_new, it + jnp.int32(1))
 
         # run outer SMC loop
-        key, state, cur, geom, n_eff_c, itf = lax.while_loop(
+        key, state, _cur, geom, n_eff_c, _itf = lax.while_loop(
             cond_fn,
             body_fn,
             (key, state, current_particles0, geom, n_eff_c, iter0),
@@ -1721,7 +1728,7 @@ def make_run_fn(
 
         return RunOutputJAX(state=state, logz=logz_final, logz_err=logz_err)
 
-    def run(key: Array, n_total: Optional[int] = None) -> RunOutputJAX:
+    def run(key: Array, n_total: int | None = None) -> RunOutputJAX:
         """
         Runs the compiled sampler with captured static settings.
 

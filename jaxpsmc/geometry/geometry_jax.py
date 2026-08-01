@@ -1,7 +1,7 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from functools import partial
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -138,7 +138,7 @@ class Geometry:
 @jax.jit
 def _cov_unweighted(
     theta: jax.Array, *, jitter: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array]:
     """
     Computes the unweighted sample mean and covariance.
 
@@ -181,7 +181,7 @@ def _cov_unweighted(
 @jax.jit
 def _cov_weighted_aweights(
     theta: jax.Array, weights: jax.Array, *, jitter: jax.Array
-) -> Tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array]:
     """
     Computes the weighted sample mean and covariance.
 
@@ -209,7 +209,7 @@ def _cov_weighted_aweights(
     theta = jnp.asarray(theta)
     w = jnp.asarray(weights)
     # read the sample count and dimension
-    n, d = theta.shape
+    _n, d = theta.shape
     dtype = theta.dtype
 
     # validate weights
@@ -337,7 +337,7 @@ def geometry_fit_jax(
     weights = jnp.asarray(weights)
     use_weights = jnp.asarray(use_weights, dtype=bool)
     # match jitter dtype to sample array
-    jitter = jnp.asarray(jitter, dtype=theta.dtype)
+    jitter_array = jnp.asarray(jitter, dtype=theta.dtype)
 
     def _do_weighted(_):
         """
@@ -354,7 +354,7 @@ def geometry_fit_jax(
             weighted mean and weighted covariance.
         """
         # use weighted covariance
-        return _cov_weighted_aweights(theta, weights, jitter=jitter)
+        return _cov_weighted_aweights(theta, weights, jitter=jitter_array)
 
     def _do_unweighted(_):
         """
@@ -371,7 +371,7 @@ def geometry_fit_jax(
             unweighted mean and unweighted covariance.
         """
         # use unweighted covariance
-        return _cov_unweighted(theta, jitter=jitter)
+        return _cov_unweighted(theta, jitter=jitter_array)
 
     # choose weighted or unweighted normal fit
     normal_mean, normal_cov = lax.cond(

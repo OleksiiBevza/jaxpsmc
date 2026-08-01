@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 import chex
 import jax
 
@@ -6,6 +5,7 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 import numpy as np
+from _sampler_test_utils import SamplerHelperBase
 from absl.testing import absltest
 
 from jaxpsmc.sampler.constants_jax import _ECONVERGED, _EVALUEERR
@@ -14,8 +14,6 @@ from jaxpsmc.sampler.posterior_jax import (
     posterior_jax,
     trim_weights_scan_jax,
 )
-
-from _sampler_test_utils import SamplerHelperBase
 
 
 class PosteriorTest(SamplerHelperBase):

@@ -279,7 +279,7 @@ class ToolsTest(chex.TestCase):
             samples2, weights
         )
 
-        for a, b in zip(out1, out2):
+        for a, b in zip(out1, out2, strict=True):
             np.testing.assert_allclose(a, b, rtol=1e-6, atol=1e-6)
 
     @chex.all_variants(with_pmap=False)

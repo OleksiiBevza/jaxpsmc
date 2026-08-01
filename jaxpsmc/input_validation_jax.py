@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Tuple
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 from jax.experimental import checkify
-
 
 Array = jax.Array
 
@@ -90,7 +89,7 @@ def assert_array_1d(x: Array, *, name: str = "x") -> Array:
 
 def assert_arrays_equal_shape(
     x: Array, y: Array, *, x_name: str = "x", y_name: str = "y"
-) -> Tuple[Array, Array]:
+) -> tuple[Array, Array]:
     """
     Checks whether two arrays have the same shape.
 
@@ -125,7 +124,7 @@ def assert_arrays_equal_shape(
 
 def assert_equal_type(
     x: Array, y: Array, *, x_name: str = "x", y_name: str = "y"
-) -> Tuple[Array, Array]:
+) -> tuple[Array, Array]:
     """
     Checks whether two arrays have the same dtype.
 
@@ -303,7 +302,7 @@ def jit_with_checks(
     fn,
     *,
     errors: Any = (checkify.user_checks),
-    static_argnames: Tuple[str, ...] = (),
+    static_argnames: tuple[str, ...] = (),
 ):
     """
     Creates a jitted function that keeps runtime checks.

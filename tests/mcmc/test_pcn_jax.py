@@ -6,8 +6,8 @@ from absl.testing import absltest
 
 from jaxpsmc.mcmc import preconditioned_pcn_jax
 from jaxpsmc.mcmc.flow_jax import (
-    _flow_u_to_theta_jax,
     _flow_theta_to_u_jax,
+    _flow_u_to_theta_jax,
 )
 from jaxpsmc.scaler_jax import init_bounds_config_jax, masks_jax
 

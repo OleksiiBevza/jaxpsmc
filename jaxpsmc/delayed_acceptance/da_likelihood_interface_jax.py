@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable, NamedTuple, Optional
+from collections.abc import Callable
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 from jax import lax
-
 
 Array = jax.Array
 
@@ -235,7 +235,7 @@ def make_evaluator_jax(
     log_likelihood_single: Callable[[Array], Array],
     log_like_approx_single: Callable[[Array], Array],
     log_prior_single: Callable[[Array], Array],
-    transform_single: Optional[Callable[[Array], Array]] = None,
+    transform_single: Callable[[Array], Array] | None = None,
 ) -> Callable[..., DALogTargetEval]:
     """
     Creates a batched JAX evaluator for delayed-acceptance targets.
