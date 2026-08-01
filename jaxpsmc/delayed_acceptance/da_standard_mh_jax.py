@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
 
+if TYPE_CHECKING:
+    from .da_likelihood_interface_jax import DALogTargetEval
+
 try:
     from .da_likelihood_interface_jax import TYPE_FULL_POSTERIOR
-except Exception:
+except ImportError:
     TYPE_FULL_POSTERIOR = jnp.int32(3)
-
 
 Array = jax.Array
 
@@ -214,7 +217,7 @@ def standard_mh_step_jax(
     old_particles: Array,
     cov: Array,
     beta: Array,
-    log_target_fn: Callable[..., object],
+    log_target_fn: Callable[..., DALogTargetEval],
     type_code: Array = TYPE_FULL_POSTERIOR,
 ) -> StandardMHStep:
     """

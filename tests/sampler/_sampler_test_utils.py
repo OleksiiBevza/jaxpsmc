@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 import chex
 import jax
 
@@ -40,7 +39,7 @@ class SamplerHelperBase(chex.TestCase):
     def _step(self, u, logl, *, beta, logz, value=0.0, B=1, dtype=jnp.float32):
         u = jnp.asarray(u, dtype=dtype)
         logl = jnp.asarray(logl, dtype=dtype)
-        N, D = u.shape
+        N, _D = u.shape
         x = u
         logp = -0.5 * jnp.sum(x * x, axis=1)
         blobs = jnp.full((N, B), jnp.asarray(value, dtype=dtype), dtype=dtype)

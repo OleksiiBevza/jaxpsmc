@@ -118,9 +118,18 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
             True means another bisection step should run.
         """
         # unpack the current loop state
-        left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = (
-            state
-        )
+        (
+            _left,
+            _right,
+            _fleft,
+            _fright,
+            _x,
+            it,
+            _funcalls,
+            converged,
+            nan_seen,
+            need_loop,
+        ) = state
         # continue only if midpoint is not a root
         return need_loop & (~converged) & (~nan_seen) & (it < maxiter)
 
@@ -193,7 +202,7 @@ def _bisect_impl(f, a, b, *, xtol, rtol, maxiter, args):
         )
 
     # run bisection loop in JAX
-    left, right, fleft, fright, x, it, funcalls, converged, nan_seen, need_loop = (
+    left, right, fleft, fright, x, it, funcalls, converged, nan_seen, _need_loop = (
         lax.while_loop(
             cond,
             body,
@@ -374,5 +383,5 @@ def bisect_jax_batch(f, a, b, *, args=(), **kwargs):
         """
         return bisect_jax(f, ai, bi, args=args_i, **kwargs)
 
-    in_axes = (0, 0) + args_axes
+    in_axes = (0, 0, *args_axes)
     return jax.vmap(solve_one, in_axes=in_axes)(a, b, *args)

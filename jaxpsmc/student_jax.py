@@ -1,7 +1,6 @@
-# ruff: noqa: E402
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +9,6 @@ from jax.scipy.special import digamma
 
 jax.config.update("jax_enable_x64", True)
 from .bisect_jax import bisect_jax
-
 
 #####################################################################
 # Nu UPDATE-HELPER
@@ -68,7 +66,7 @@ def _opt_nu_bisect(
     *,
     xtol: jnp.ndarray,
     bisect_maxiter: jnp.ndarray,
-) -> Tuple[jnp.ndarray, jnp.int64, jnp.bool_]:
+) -> tuple[jnp.ndarray, jnp.int64, jnp.bool_]:
     """
     Updates Student-t nu by solving a scalar equation with bisection.
 
@@ -196,7 +194,7 @@ def _opt_nu_bisect(
 #####################################################################
 # INITIALIZATION HELPER
 #####################################################################
-def _init_mu_sigma(data: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def _init_mu_sigma(data: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """
     Builds initial mean and covariance estimates for the Student-t fit.
 
@@ -223,7 +221,7 @@ def _init_mu_sigma(data: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
             initial covariance matrix, shape (dim, dim).
     """
     # sample count and dimension
-    n, dim = data.shape
+    n, _dim = data.shape
     # coordinate wise median as initial location
     mu = jnp.median(data, axis=0)
 
@@ -252,7 +250,7 @@ def _fit_mvstud_core(
     nu_init: jnp.ndarray,  # scalar float
     xtol: jnp.ndarray,  # scalar float
     bisect_maxiter: jnp.ndarray,  # scalar int32
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.int64, jnp.int64]:
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.int64, jnp.int64]:
     """
     Fits a multivariate Student-t distribution using EM updates.
 
@@ -341,7 +339,7 @@ def _fit_mvstud_core(
             True means another EM iteration should run.
         """
         # current loop state
-        mu, Sigma, nu, last_nu, i, stop, status = state
+        _mu, _Sigma, nu, last_nu, i, stop, _status = state
         not_done = jnp.logical_and(i < max_iter, jnp.logical_not(stop))
         not_converged = jnp.abs(nu - last_nu) > tol
         return jnp.logical_and(not_done, not_converged)
@@ -367,7 +365,7 @@ def _fit_mvstud_core(
             updated EM loop state.
         """
         # current loop state
-        mu, Sigma, nu, last_nu, i, stop, status = state
+        mu, Sigma, nu, _last_nu, i, stop, status = state
 
         # compute Mahalanobis distances under current parameters
         diffs = data - mu[None, :]  # (n, dim)
@@ -435,7 +433,7 @@ def _fit_mvstud_core(
             Sigma_upd = 0.5 * (Sigma_upd + Sigma_upd.T)
             return (mu_upd, Sigma_upd)
 
-        # match original behavior: if nu becomes inf, return *current* mu/Sigma (don’t update them)
+        # match original behavior: if nu becomes inf, return *current* mu/Sigma (don't update them)
         mu_new2, Sigma_new2 = lax.cond(
             nu_is_inf, _keep_params, _update_params, operand=None
         )
@@ -459,7 +457,7 @@ def _fit_mvstud_core(
         return (mu_new2, Sigma_new2, nu_new, nu_old, i + jnp.int64(1), stop2, status2)
 
     # run EM loop
-    mu, Sigma, nu, last_nu, iters, stop, status = lax.while_loop(
+    mu, Sigma, nu, last_nu, iters, _stop, status = lax.while_loop(
         cond_fun, body_fun, (mu0, Sigma0, nu0, last_nu0, i0, stop0, status0)
     )
 
@@ -487,7 +485,7 @@ def fit_mvstud_jax(
     nu_init: float = 20.0,
     xtol: float = 2e-12,
     bisect_maxiter: int = 100,
-) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, Dict[str, Any]]:
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, dict[str, Any]]:
     """
     Fits a multivariate Student-t distribution to data.
 

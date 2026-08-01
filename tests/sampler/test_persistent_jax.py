@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 import chex
 import jax
 
@@ -6,14 +5,13 @@ jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
 import numpy as np
+from _sampler_test_utils import SamplerHelperBase
 from absl.testing import absltest
 
-from jaxpsmc.sampler.constants_jax import METRIC_ESS, METRIC_USS, _ECONVERGED
+from jaxpsmc.sampler.constants_jax import _ECONVERGED, METRIC_ESS, METRIC_USS
 from jaxpsmc.sampler.persistent_jax import reweight_step_persistent_jax
 from jaxpsmc.sampler.resample_jax import resample_particles_jax
 from jaxpsmc.sampler.reweight_jax import _weights_metric_logz, reweight_step_jax
-
-from _sampler_test_utils import SamplerHelperBase
 
 
 class PersistentTest(SamplerHelperBase):

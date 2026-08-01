@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
+
 import jax
-from jax import Array
 import jax.numpy as jnp
 import jax.scipy as jsp
-from .input_validation_jax import assert_array_within_interval
+from jax import Array
 
+from .input_validation_jax import assert_array_within_interval
 
 _EMPTY_I32 = jnp.zeros((0,), dtype=jnp.int64)
 _DEFAULT_BOUNDS = jnp.array([jnp.inf, jnp.inf], dtype=jnp.float64)  # matches bounds
@@ -493,7 +494,7 @@ def _inverse_right_jax(u: Array, high: Array, mask_right: Array) -> tuple[Array,
 
     # apply x = high - exp(u) and keep u as log-Jacobian term
     x = high_sel - jnp.exp(u_sel)  # (N, K) through  broadcasting
-    J = u_sel  #
+    J = u_sel
     return x, J
 
 

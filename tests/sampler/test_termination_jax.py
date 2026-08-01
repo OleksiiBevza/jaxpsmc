@@ -1,16 +1,14 @@
-# ruff: noqa: E402
 import chex
 import jax
 
 jax.config.update("jax_enable_x64", True)
 
 import jax.numpy as jnp
+from _sampler_test_utils import SamplerHelperBase
 from absl.testing import absltest
 
 from jaxpsmc.sampler.constants_jax import METRIC_ESS, METRIC_USS
 from jaxpsmc.sampler.termination_jax import not_termination_jax
-
-from _sampler_test_utils import SamplerHelperBase
 
 
 class TerminationTest(SamplerHelperBase):

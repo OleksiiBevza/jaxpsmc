@@ -7,8 +7,8 @@ from absl.testing import absltest
 from jaxpsmc.delayed_acceptance.da_conservative_damh_jax import (
     _clean_log_ratio_jax,
     _log_accept_prob_jax,
-    conservative_damh_step_parts_jax,
     conservative_damh_step_jax,
+    conservative_damh_step_parts_jax,
     mahalanobis_distance_jax,
 )
 

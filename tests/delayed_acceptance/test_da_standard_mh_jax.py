@@ -8,8 +8,8 @@ from absl.testing import absltest
 
 from jaxpsmc.delayed_acceptance.da_standard_mh_jax import (
     _proposal_distance_jax,
-    standard_mh_step_logtargets_jax,
     standard_mh_step_jax,
+    standard_mh_step_logtargets_jax,
 )
 
 

@@ -5,7 +5,6 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 
-
 Array = jax.Array
 
 
@@ -35,7 +34,8 @@ class TuningSelection(NamedTuple):
         and whether the selection is usable.
     """
 
-    index: Array
+    # This public array field intentionally shadows tuple.index().
+    index: Array  # type: ignore[assignment]
     costs: Array
     min_cost: Array
     valid: Array

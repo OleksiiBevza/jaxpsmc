@@ -7,7 +7,6 @@ from jax import lax
 from ..particles_jax import ParticlesState, compute_logw_and_logz_jax
 from ..tools_jax import effective_sample_size_jax, unique_sample_size_jax
 
-
 #################################################################
 # 4. _not_termination part
 #################################################################

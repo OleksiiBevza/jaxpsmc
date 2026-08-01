@@ -326,7 +326,7 @@ def trim_weights_scan_jax(
         return (found2, i_best2), r
 
     # run scan over all percentile indices
-    (found_final, i_final), _ = lax.scan(
+    (_found_final, i_final), _ = lax.scan(
         scan_step, (jnp.asarray(False), jnp.asarray(0, jnp.int32)), idxs
     )
 

@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-from typing import Callable, Mapping, Tuple, Any, Optional, Dict
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 
+from ..delayed_acceptance.da_conservative_damh_jax import (
+    conservative_damh_step_jax,
+)
 from ..scaler_jax import (
     apply_boundary_conditions_x_jax,
     forward_jax,
     inverse_jax,
 )
-from ..delayed_acceptance.da_conservative_damh_jax import (
-    conservative_damh_step_jax,
-)
-from .flow_jax import _flow_u_to_theta_jax, _flow_theta_to_u_jax
+from .flow_jax import _flow_theta_to_u_jax, _flow_u_to_theta_jax
 
 Array = jax.Array
 
@@ -24,7 +25,7 @@ def _empirical_li_geometry_from_cov(
     li_rank: int,
     li_var_floor: float,
     li_complement_var: float,
-) -> Tuple[Array, Array, Array, Array]:
+) -> tuple[Array, Array, Array, Array]:
     """
     Builds empirical likelihood-informed geometry from a covariance matrix.
 
@@ -216,7 +217,7 @@ def likelihood_informed_pcn_jax(
     blobs: Array,
     beta: Array,
     # functions
-    loglike_fn: Callable[[Array], Tuple[Array, Array]],
+    loglike_fn: Callable[[Array], tuple[Array, Array]],
     loglike_approx_fn: Callable[[Array], Array],
     logprior_fn: Callable[[Array], Array],
     flow: Any,
@@ -237,8 +238,8 @@ def likelihood_informed_pcn_jax(
     use_delayed_acceptance: Array = jnp.asarray(False),
     da_c_const: Array = jnp.asarray(0.01),
     da_d_const: Array = jnp.asarray(2.0),
-    condition: Optional[Array] = None,
-) -> Dict[str, Array]:
+    condition: Array | None = None,
+) -> dict[str, Array]:
     """
     Runs one likelihood-informed pCN mutation step.
 
@@ -352,7 +353,7 @@ def likelihood_informed_pcn_jax(
         li_complement_var=li_complement_var,
     )
 
-    def _u2t_single(ui: Array) -> Tuple[Array, Array]:
+    def _u2t_single(ui: Array) -> tuple[Array, Array]:
         """
         Maps one particle from u-space to theta-space.
 
@@ -413,7 +414,7 @@ def likelihood_informed_pcn_jax(
             xi,
         )
 
-    def _like_or_neginf(xi: Array, ok: Array) -> Tuple[Array, Array]:
+    def _like_or_neginf(xi: Array, ok: Array) -> tuple[Array, Array]:
         """
         Evaluates the full likelihood only when the particle is valid.
 
@@ -433,11 +434,11 @@ def likelihood_informed_pcn_jax(
             log-likelihood value and blob output.
         """
 
-        def _do(z: Array) -> Tuple[Array, Array]:
+        def _do(z: Array) -> tuple[Array, Array]:
             ll, bb = loglike_fn(z)
             return ll, bb
 
-        def _skip(z: Array) -> Tuple[Array, Array]:
+        def _skip(z: Array) -> tuple[Array, Array]:
             return jnp.asarray(-jnp.inf, dtype=xi.dtype), blob_template
 
         return jax.lax.cond(ok, _do, _skip, xi)
@@ -626,7 +627,7 @@ def likelihood_informed_pcn_jax(
             li_cs_scale=li_cs_scale,
         )
 
-        def _t2u_single(ti: Array) -> Tuple[Array, Array]:
+        def _t2u_single(ti: Array) -> tuple[Array, Array]:
             """
             Maps one particle from theta-space back to u-space.
 
@@ -869,17 +870,17 @@ def likelihood_informed_pcn_jax(
         logdetj,
         logdetj_flow,
         logl,
-        logl_approx,
+        _logl_approx,
         logp,
         blobs,
-        mu,
+        _mu,
         sigma,
-        logp2_best,
-        cnt,
+        _logp2_best,
+        _cnt,
         i,
         calls,
         accept,
-        done,
+        _done,
     ) = carry_f
 
     return {

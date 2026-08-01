@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -7,7 +9,6 @@ import jax.numpy as jnp
 from ..mcmc.dili_pcn_jax import dili_pcn_jax
 from ..mcmc.li_pcn_jax import likelihood_informed_pcn_jax
 from ..mcmc.pcn_jax import preconditioned_pcn_jax
-
 
 #################################################################
 # 3. MUTATE
@@ -18,8 +19,8 @@ Array = jax.Array
 
 def _log_like(
     x_i: Array,
-    loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
-) -> Tuple[Array, Array]:
+    loglike_single_fn: Callable[[Array], tuple[Array, Array]],
+) -> tuple[Array, Array]:
     """
     Calls the single-particle log-likelihood function.
 
@@ -49,12 +50,12 @@ _log_like_batched = jax.vmap(_log_like, in_axes=(0, None), out_axes=(0, 0))
 
 def mutate(
     key: Array,
-    current_particles: Dict[str, Array],
+    current_particles: dict[str, Array],
     *,
     use_preconditioned_pcn: Array,
     # functions required by mutation kernels
-    loglike_single_fn: Callable[[Array], Tuple[Array, Array]],
-    loglike_approx_single_fn: Optional[Callable[[Array], Array]] = None,
+    loglike_single_fn: Callable[[Array], tuple[Array, Array]],
+    loglike_approx_single_fn: Callable[[Array], Array] | None = None,
     logprior_fn: Callable[[Array], Array],
     flow: Any,
     scaler_cfg: Mapping[str, Array],
@@ -64,8 +65,8 @@ def mutate(
     geom_cov: Array,
     geom_nu: Array,
     # empirical LI-pCN geometry; if omitted, geom_mu/geom_cov are reused
-    li_geom_mu: Optional[Array] = None,
-    li_geom_cov: Optional[Array] = None,
+    li_geom_mu: Array | None = None,
+    li_geom_cov: Array | None = None,
     # kernel choice
     kernel: str = "pcn",
     # empirical LI-pCN options
@@ -75,10 +76,10 @@ def mutate(
     li_var_floor: float = 1e-8,
     li_complement_var: float = 1.0,
     # Hessian/GNH-based DILI-pCN geometry
-    dili_center: Optional[Array] = None,
-    dili_basis: Optional[Array] = None,
-    dili_post_var: Optional[Array] = None,
-    dili_cov_ref: Optional[Array] = None,
+    dili_center: Array | None = None,
+    dili_basis: Array | None = None,
+    dili_post_var: Array | None = None,
+    dili_cov_ref: Array | None = None,
     # DILI-pCN options
     dili_lis_scale: float = 1.0,
     dili_cs_scale: float = 1.0,
@@ -88,8 +89,8 @@ def mutate(
     use_delayed_acceptance: Array = jnp.asarray(False),
     da_c_const: Array = jnp.asarray(0.01),
     da_d_const: Array = jnp.asarray(2.0),
-    condition: Optional[Array] = None,
-) -> Tuple[Array, Dict[str, Array], Dict[str, Array]]:
+    condition: Array | None = None,
+) -> tuple[Array, dict[str, Array], dict[str, Array]]:
     """
     Runs the mutation step to the selected pCN-type kernel.
 
@@ -199,7 +200,7 @@ def mutate(
         current_particles["proposal_scale"],
     )
 
-    def loglike_fn_single(x_i: Array) -> Tuple[Array, Array]:
+    def loglike_fn_single(x_i: Array) -> tuple[Array, Array]:
         """
         Evaluates the exact likelihood wrapper for one particle.
 

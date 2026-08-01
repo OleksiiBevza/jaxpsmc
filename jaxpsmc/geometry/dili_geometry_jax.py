@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, NamedTuple
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
-
 
 Array = jax.Array
 
@@ -211,7 +211,7 @@ def build_dili_pcn_geometry_jax(
     weights = _normalize_weights_jax(weights)
 
     dtype = theta.dtype
-    k, d = theta.shape
+    _k, d = theta.shape
 
     gnh_floor_arr = jnp.asarray(gnh_floor, dtype=dtype)
     cov_floor_arr = jnp.asarray(cov_floor, dtype=dtype)
